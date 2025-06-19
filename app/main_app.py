@@ -1,17 +1,15 @@
 import streamlit as st
+from upload_review import run_upload_interface
 
-st.set_page_config(page_title="Secure Expense Classifier", layout="wide")
-st.title("🧾 Secure PDF Expense Uploader (AI-Enhanced)")
+# === App Entry Point ===
+def main():
+    st.set_page_config(page_title="Expense Classifier GPT", layout="wide")
+    st.sidebar.title("Navigation")
+    selection = st.sidebar.radio("Go to", ["📥 Upload & Review"])
 
-st.markdown("""
-This is the upgraded version of your expense classification tool with:
-- 🔐 Secure architecture
-- 🧠 GPT support (coming soon)
-- ✅ Manual approval before data is saved
-""")
+    if selection == "📥 Upload & Review":
+        run_upload_interface()
 
-st.subheader("Step 1: Upload your bank/credit card statement (PDF)")
-uploaded_file = st.file_uploader("Drag and drop a PDF", type=["pdf"])
 
-if uploaded_file:
-    st.success("File received. Parsing & categorization will go here...")
+if __name__ == "__main__":
+    main()
