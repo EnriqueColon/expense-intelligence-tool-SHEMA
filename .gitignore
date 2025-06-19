@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.pyc
+
+data/
+models/
+vector_store/
+raw_uploads/
+parsed_pending/
+parsed_approved/
