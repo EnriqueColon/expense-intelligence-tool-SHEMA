@@ -1,14 +1,17 @@
 import streamlit as st
-from upload_review import run_upload_interface
+from app.upload_review import run_upload_interface
+from app.interface.gpt_tab import run_gpt_tab
 
-# === App Entry Point ===
 def main():
-    st.set_page_config(page_title="Expense Classifier GPT", layout="wide")
-    st.sidebar.title("Navigation")
-    selection = st.sidebar.radio("Go to", ["📥 Upload & Review"])
+    st.set_page_config(page_title="Expense Classifier", layout="wide")
 
-    if selection == "📥 Upload & Review":
-        run_upload_interface()
+    tabs = {
+        "Upload & Review": run_upload_interface,
+        "GPT Assistant": run_gpt_tab,
+    }
+
+    selected_tab = st.sidebar.radio("Navigation", list(tabs.keys()))
+    tabs[selected_tab]()
 
 
 if __name__ == "__main__":
