@@ -198,15 +198,15 @@ async function retrainModel() {
     if (res.status === 401) { logout(); return; }
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Retrain failed');
-    const githubMsg = (data.github && data.github.success)
-      ? 'Model committed to GitHub — Vercel is redeploying with the updated model.'
-      : 'Model updated for this session. Set GITHUB_TOKEN in Vercel env vars to persist permanently.';
+    const persistMsg = data.persisted
+      ? 'Model saved to Vercel Blob — will be used on all future requests.'
+      : 'Model updated for this session. To persist across restarts, add Vercel Blob Storage to your project.';
     resultEl.className = 'retrain-result retrain-success';
     resultEl.innerHTML =
       '<strong>&#10003; Model retrained successfully</strong><br>' +
       'Trained on <strong>' + data.samples + '</strong> transactions &middot; ' +
       '<strong>' + data.categories.length + '</strong> categories learned<br>' +
-      '<span class="retrain-note">' + githubMsg + '</span>';
+      '<span class="retrain-note">' + persistMsg + '</span>';
   } catch (err) {
     resultEl.className = 'retrain-result retrain-error';
     resultEl.textContent = 'Retrain failed: ' + err.message;

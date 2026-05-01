@@ -1,7 +1,6 @@
 import sys
 import os
 import io
-import base64
 import requests as http_requests
 from datetime import datetime, timedelta
 
@@ -26,27 +25,74 @@ from sklearn.impute import SimpleImputer
 from app.pdf_parser import parse_pdf_text, extract_transactions_from_text
 
 # --- Config ---
-SECRET_KEY    = os.environ.get("SECRET_KEY", "shema-intelligence-secret-2025")
-APP_USERNAME  = os.environ.get("APP_USERNAME", "admin")
-APP_PASSWORD  = os.environ.get("APP_PASSWORD", "shema2025")
-GITHUB_TOKEN  = os.environ.get("GITHUB_TOKEN", "")
-GITHUB_REPO   = os.environ.get("GITHUB_REPO", "EnriqueColon/expense-intelligence-tool-SHEMA")
-ALGORITHM     = "HS256"
-TOKEN_HOURS   = 8
+SECRET_KEY   = os.environ.get("SECRET_KEY", "shema-intelligence-secret-2025")
+APP_USERNAME = os.environ.get("APP_USERNAME", "admin")
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "shema2025")
+BLOB_TOKEN   = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
+ALGORITHM    = "HS256"
+TOKEN_HOURS  = 8
 
 # --- App ---
 app = FastAPI(title="SHEMA Expense Intelligence Tool")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
-# --- Model ---
+# --- Blob Storage helpers ---
+BLOB_FILENAME = "expense_classifier.pkl"
+
+def load_model_from_blob():
+    if not BLOB_TOKEN:
+        return None
+    try:
+        r = http_requests.get(
+            "https://blob.vercel-storage.com",
+            headers={"Authorization": f"Bearer {BLOB_TOKEN}"},
+            params={"prefix": BLOB_FILENAME, "limit": 1},
+            timeout=10
+        )
+        if r.status_code != 200:
+            return None
+        blobs = r.json().get("blobs", [])
+        if not blobs:
+            return None
+        model_r = http_requests.get(blobs[0]["downloadUrl"], timeout=30)
+        if model_r.status_code == 200:
+            return joblib.load(io.BytesIO(model_r.content))
+    except Exception as e:
+        print(f"[BLOB] Load failed: {e}")
+    return None
+
+def save_model_to_blob(model_bytes: bytes) -> bool:
+    if not BLOB_TOKEN:
+        return False
+    try:
+        r = http_requests.put(
+            f"https://blob.vercel-storage.com/{BLOB_FILENAME}",
+            headers={
+                "Authorization": f"Bearer {BLOB_TOKEN}",
+                "Content-Type": "application/octet-stream",
+                "x-add-random-suffix": "0"
+            },
+            data=model_bytes,
+            timeout=30
+        )
+        return r.status_code in (200, 201)
+    except Exception as e:
+        print(f"[BLOB] Save failed: {e}")
+        return False
+
+# --- Model (try Blob first, fall back to bundled file) ---
 MODEL_PATH = os.path.join(BASE_DIR, "model", "expense_classifier.pkl")
-try:
-    pipeline = joblib.load(MODEL_PATH)
-    print("[INFO] Model loaded successfully")
-except Exception as e:
-    pipeline = None
-    print(f"[ERROR] Could not load model: {e}")
+pipeline = load_model_from_blob()
+if pipeline:
+    print("[INFO] Model loaded from Vercel Blob")
+else:
+    try:
+        pipeline = joblib.load(MODEL_PATH)
+        print("[INFO] Model loaded from bundled file")
+    except Exception as e:
+        pipeline = None
+        print(f"[ERROR] Could not load model: {e}")
 
 # --- Auth ---
 security = HTTPBearer()
@@ -67,29 +113,6 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
         return username
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-# --- GitHub helper ---
-def commit_model_to_github(model_bytes: bytes) -> dict:
-    if not GITHUB_TOKEN:
-        return {"success": False, "reason": "GITHUB_TOKEN not configured"}
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/model/expense_classifier.pkl"
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-    existing = http_requests.get(url, headers=headers)
-    payload = {
-        "message": f"Retrain model via dashboard ({datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')})",
-        "content": base64.b64encode(model_bytes).decode(),
-        "branch": "main"
-    }
-    if existing.status_code == 200:
-        payload["sha"] = existing.json().get("sha")
-    r = http_requests.put(url, headers=headers, json=payload)
-    if r.status_code in (200, 201):
-        commit_url = r.json().get("commit", {}).get("html_url", "")
-        return {"success": True, "commit_url": commit_url}
-    return {"success": False, "reason": r.text[:200]}
 
 # --- Routes ---
 @app.get("/")
@@ -141,7 +164,7 @@ async def retrain_model(body: RetrainRequest, username: str = Depends(verify_tok
     df["Amount"] = pd.to_numeric(df.get("Amount", 0), errors="coerce").fillna(0)
     df = df.dropna(subset=["Description", "Category"])
     df = df[df["Description"].astype(str).str.strip() != ""]
-    df = df[df["Category"].astype(str).str.strip().isin(["", "Unclassified"]) == False]
+    df = df[~df["Category"].astype(str).str.strip().isin(["", "Unclassified"])]
     if len(df) < 5:
         raise HTTPException(status_code=400, detail="Need at least 5 labeled transactions to retrain.")
     X = df[["Description", "Amount"]]
@@ -158,17 +181,19 @@ async def retrain_model(body: RetrainRequest, username: str = Depends(verify_tok
     ])
     new_pipeline.fit(X, y)
     pipeline = new_pipeline
+
     model_buffer = io.BytesIO()
     joblib.dump(new_pipeline, model_buffer)
-    github_result = commit_model_to_github(model_buffer.getvalue())
+    saved = save_model_to_blob(model_buffer.getvalue())
+
     return {
         "success": True,
         "samples": len(df),
         "categories": sorted(y.unique().tolist()),
         "retrained_by": username,
-        "github": github_result
+        "persisted": saved
     }
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "model_loaded": pipeline is not None}
+    return {"status": "ok", "model_loaded": pipeline is not None, "blob_configured": bool(BLOB_TOKEN)}
