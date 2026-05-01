@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SHEMA Expense Intelligence Tool</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+  <header>
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-mark">S</span>
+        <div>
+          <div class="logo-title">SHEMA</div>
+          <div class="logo-sub">Expense Intelligence Tool</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- Upload Card -->
+    <div class="card" id="upload-card">
+      <div class="card-body">
+        <div class="drop-zone" id="drop-zone">
+          <div class="drop-icon">&#8679;</div>
+          <h3>Drop your credit card PDF here</h3>
+          <p>or click to browse files</p>
+          <input type="file" id="file-input" accept=".pdf" hidden />
+        </div>
+        <div class="loading hidden" id="loading">
+          <div class="spinner"></div>
+          <p>Parsing and classifying transactions&hellip;</p>
+        </div>
+        <div class="error-msg hidden" id="error"></div>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div id="results" class="hidden">
+
+      <!-- Stats -->
+      <div class="stats-grid" id="stats-grid"></div>
+
+      <!-- Table -->
+      <div class="card">
+        <div class="table-header">
+          <h2>Transactions</h2>
+          <button class="btn btn-primary" onclick="downloadCSV()">&#8595; Download CSV</button>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Sale Date</th>
+                <th>Post Date</th>
+                <th>Description</th>
+                <th>Amount</th>
+                <th>Category</th>
+              </tr>
+            </thead>
+            <tbody id="table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

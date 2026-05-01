@@ -1,2 +1,6 @@
-streamlit
-pdfplumber
+fastapi
+python-multipart
+PyMuPDF
+pandas
+scikit-learn
+joblib
