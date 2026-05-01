@@ -2,12 +2,15 @@ import sys
 import os
 import io
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, BASE_DIR)
 
 import joblib
 import pandas as pd
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from app.pdf_parser import parse_pdf_text, extract_transactions_from_text
 
 app = FastAPI(title="SHEMA Expense Intelligence Tool")
@@ -19,11 +22,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-MODEL_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "model",
-    "expense_classifier.pkl"
-)
+app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
+
+MODEL_PATH = os.path.join(BASE_DIR, "model", "expense_classifier.pkl")
 
 try:
     pipeline = joblib.load(MODEL_PATH)
@@ -32,9 +33,12 @@ except Exception as e:
     print(f"[WARNING] Could not load model: {e}")
 
 
+@app.get("/")
+def root():
+    return FileResponse(os.path.join(BASE_DIR, "index.html"))
+
+
 @app.post("/api/upload")
-@app.post("/api/index")
-@app.post("/")
 async def upload_pdf(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted.")

@@ -4,3 +4,4 @@ PyMuPDF
 pandas
 scikit-learn
 joblib
+aiofiles
