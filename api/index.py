@@ -150,6 +150,8 @@ async def upload_pdf(file: UploadFile = File(...), username: str = Depends(verif
         else:
             df["Category"] = "Unclassified"
         df["Processed By"] = username
+        if "Cardholder" not in df.columns:
+            df["Cardholder"] = "Primary"
         records = df.fillna("").to_dict(orient="records")
         return {"transactions": records, "count": len(records), "username": username}
     except Exception as e:

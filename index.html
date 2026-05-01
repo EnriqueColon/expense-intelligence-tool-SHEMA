@@ -81,11 +81,38 @@
                 <th>Description</th>
                 <th>Amount</th>
                 <th>Category</th>
-                <th>Processed By</th>
+                <th>Cardholder</th>
               </tr>
             </thead>
             <tbody id="table-body"></tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- Vendor Analysis -->
+      <div class="card">
+        <div class="table-header">
+          <h2>Vendor Analysis</h2>
+          <span class="vendor-sub">Top vendors by total spend</span>
+        </div>
+        <div class="charts-grid vendor-charts">
+          <div class="card-body">
+            <h3 class="chart-title">Top 10 Vendors</h3>
+            <canvas id="chart-vendor"></canvas>
+          </div>
+          <div class="table-wrapper">
+            <table id="vendor-table">
+              <thead>
+                <tr>
+                  <th>Vendor</th>
+                  <th>Transactions</th>
+                  <th>Total Spend</th>
+                  <th>Avg. Transaction</th>
+                </tr>
+              </thead>
+              <tbody id="vendor-body"></tbody>
+            </table>
+          </div>
         </div>
       </div>
 

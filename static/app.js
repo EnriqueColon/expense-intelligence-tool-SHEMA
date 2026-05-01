@@ -80,7 +80,7 @@ async function handleFile(file) {
   }
 }
 
-function render() { renderStats(); renderCharts(); renderTable(); }
+function render() { renderStats(); renderCharts(); renderTable(); renderVendorAnalysis(); }
 
 function renderStats() {
   let charges = 0, credits = 0;
@@ -94,7 +94,7 @@ function renderStats() {
     '<div class="stat-card amber"><div class="stat-label">Total Charges</div><div class="stat-value">' + fmt(charges) + '</div></div>' +
     '<div class="stat-card green"><div class="stat-label">Total Credits / Payments</div><div class="stat-value">' + fmt(credits) + '</div></div>' +
     '<div class="stat-card red"><div class="stat-label">Net Spend</div><div class="stat-value">' + fmt(charges - credits) + '</div></div>' +
-    '<div class="stat-card"><div class="stat-label">Processed By</div><div class="stat-value" style="font-size:1.1rem">' + (username || '-') + '</div></div>';
+    '<div class="stat-card"><div class="stat-label">Uploaded By</div><div class="stat-value" style="font-size:1.1rem">' + (username || '-') + '</div></div>';
 }
 
 function renderCharts() {
@@ -150,7 +150,7 @@ function renderTable() {
       '<td class="desc" title="' + esc(txn.Description || '') + '">' + esc(txn.Description || '') + '</td>' +
       '<td class="amount' + (amt < 0 ? ' negative' : '') + '">$' + Math.abs(amt).toFixed(2) + '</td>' +
       '<td><select class="category-select" onchange="updateCategory(' + i + ', this.value)">' + buildOptions(txn.Category) + '</select></td>' +
-      '<td>' + esc(txn['Processed By'] || username || '') + '</td>';
+      '<td>' + esc(txn['Cardholder'] || 'Primary') + '</td>';
     tbody.appendChild(tr);
   });
 }
@@ -170,7 +170,7 @@ function updateCategory(i, val) {
 }
 
 function downloadCSV() {
-  const headers = ['Sale Date', 'Post Date', 'Description', 'Amount', 'Category', 'Processed By'];
+  const headers = ['Sale Date', 'Post Date', 'Description', 'Amount', 'Category', 'Cardholder', 'Processed By'];
   const rows = transactions.map(function(t) {
     return headers.map(function(h) { return '"' + String(t[h] || '').replace(/"/g, '""') + '"'; }).join(',');
   });
@@ -220,4 +220,61 @@ function showError(msg) { errorEl.textContent = msg; errorEl.classList.remove('h
 function hideError()    { errorEl.classList.add('hidden'); }
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// --- Vendor Analysis ---
+let vendorChart = null;
+
+function renderVendorAnalysis() {
+  // Build vendor totals from positive-amount transactions only
+  var vendorMap = {};
+  transactions.forEach(function(t) {
+    var amt = parseFloat(t.Amount) || 0;
+    if (amt <= 0) return;
+    var vendor = (t.Description || 'Unknown').trim();
+    if (!vendorMap[vendor]) vendorMap[vendor] = { count: 0, total: 0 };
+    vendorMap[vendor].count += 1;
+    vendorMap[vendor].total += amt;
+  });
+
+  var sorted = Object.entries(vendorMap)
+    .map(function(e) { return { vendor: e[0], count: e[1].count, total: e[1].total, avg: e[1].total / e[1].count }; })
+    .sort(function(a, b) { return b.total - a.total; });
+
+  var fmt = function(v) { return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+
+  // Vendor table
+  var tbody = document.getElementById('vendor-body');
+  tbody.innerHTML = '';
+  sorted.forEach(function(row) {
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td class="desc">' + esc(row.vendor) + '</td>' +
+      '<td style="text-align:center">' + row.count + '</td>' +
+      '<td class="amount">' + fmt(row.total) + '</td>' +
+      '<td class="amount">' + fmt(row.avg) + '</td>';
+    tbody.appendChild(tr);
+  });
+
+  // Vendor bar chart (top 10)
+  var top = sorted.slice(0, 10);
+  if (vendorChart) vendorChart.destroy();
+  vendorChart = new Chart(document.getElementById('chart-vendor'), {
+    type: 'bar',
+    data: {
+      labels: top.map(function(r) { return r.vendor.length > 30 ? r.vendor.slice(0, 28) + '…' : r.vendor; }),
+      datasets: [{
+        label: 'Total Spend ($)',
+        data: top.map(function(r) { return +r.total.toFixed(2); }),
+        backgroundColor: CHART_COLORS.slice(0, top.length),
+        borderRadius: 4
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { x: { ticks: { callback: function(v) { return '$' + Number(v).toLocaleString(); } } } }
+    }
+  });
 }
