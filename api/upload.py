@@ -33,6 +33,7 @@ except Exception as e:
 
 
 @app.post("/api/upload")
+@app.post("/")
 async def upload_pdf(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
