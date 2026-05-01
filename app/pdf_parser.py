@@ -85,14 +85,27 @@ def extract_transactions_from_text(lines):
         line_2 = lines[i + 1].strip()
         line_3 = lines[i + 2].strip()
 
-        # Detect a named cardholder transaction section.
-        # Citi statements use: <NAME> → "Standard Purchases" → transactions.
-        # Requiring the two-line pattern prevents false matches on the
-        # CARDHOLDER SUMMARY table and repeated page headers.
-        if _is_cardholder_line(line_1) and line_2.lower().startswith("standard purchases"):
-            current_cardholder = line_1.strip().title()
-            i += 2
-            continue
+        # Detect named cardholder transaction section.
+        # Citi PDFs use a two-column layout; PyMuPDF interleaves right-column
+        # blocks (AAdvantage miles section) between the section name header and
+        # "Standard Purchases", so they are not always adjacent lines.
+        # Strategy: look ahead up to 10 lines for the exact text
+        # "Standard Purchases" (stops at the first MM/DD date so we don't
+        # accidentally match the CARDHOLDER SUMMARY table, and requires an
+        # exact match so "Standard Purchases, Cont'd" on page 3 is ignored).
+        if _is_cardholder_line(line_1):
+            found_at = -1
+            for j in range(i + 1, min(i + 11, len(lines))):
+                s = lines[j].strip()
+                if re.match(r'^standard purchases\s*$', s, re.IGNORECASE):
+                    found_at = j
+                    break
+                if re.match(r'^\d{2}/\d{2}', s):
+                    break  # hit a transaction date — stop searching
+            if found_at >= 0:
+                current_cardholder = line_1.strip().title()
+                i = found_at + 1
+                continue
 
         # Payment transaction (3-line pattern: date / description / amount)
         if (
