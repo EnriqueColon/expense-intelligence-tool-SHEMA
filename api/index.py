@@ -28,9 +28,10 @@ MODEL_PATH = os.path.join(BASE_DIR, "model", "expense_classifier.pkl")
 
 try:
     pipeline = joblib.load(MODEL_PATH)
+    print(f"[INFO] Model loaded successfully from {MODEL_PATH}")
 except Exception as e:
     pipeline = None
-    print(f"[WARNING] Could not load model: {e}")
+    print(f"[ERROR] Could not load model: {e}")
 
 
 @app.get("/")
