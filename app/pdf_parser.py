@@ -12,6 +12,8 @@ _SKIP_WORDS = {
     'PAGE', 'IMPORTANT', 'NOTICE', 'INFORMATION',
     # Rewards / loyalty
     'REWARDS', 'POINTS', 'EARNED', 'EARN', 'MILES', 'BONUS', 'CASHBACK',
+    # Section sub-headers
+    'STANDARD', 'CHARGES', 'CREDITS',
     # Business entity words that appear in section headers
     'SOFTWARE', 'SERVICES', 'SERVICE', 'GROUP', 'MANAGEMENT', 'SYSTEMS',
     'SOLUTIONS', 'TECHNOLOGIES', 'TECHNOLOGY', 'INC', 'LLC', 'CORP',
@@ -27,26 +29,40 @@ _SKIP_WORDS = {
 
 def _is_cardholder_line(line: str) -> bool:
     """
-    Return True only if line looks like a personal cardholder name.
-    Accepts both ALL-CAPS ("CARLOS RIVERA") and Title Case ("Carlos Rivera").
-    Requirements: 2-3 words, each 2-20 alpha chars, each with a vowel,
-    none matching known financial/business/card keywords.
+    Return True if line looks like a personal cardholder name.
+    Accepts both ALL-CAPS and Title Case, with optional middle initial:
+      "CARLOS RIVERA", "Carlos Rivera", "LAURO R SERRANO"
+    Rules for each name word (first / last / middle if not an initial):
+      - 3-20 alphabetic characters
+      - All-caps or title-case (not mixed)
+      - Contains at least one vowel
+      - Not in the financial/card/business skip list
+    Middle initial: single uppercase letter in position 1 of a 3-word name.
     """
     words = line.strip().split()
     if len(words) < 2 or len(words) > 3:
         return False
-    # Every word must be purely alphabetic, 2-20 chars, all-caps OR title-case
-    for w in words:
-        if not re.match(r'^[A-Za-z]{2,20}$', w):
+
+    name_words = []
+    for idx, w in enumerate(words):
+        # Single uppercase letter in the middle slot → valid middle initial
+        if idx == 1 and len(words) == 3 and re.match(r'^[A-Z]$', w):
+            continue
+        if not re.match(r'^[A-Za-z]{3,20}$', w):
             return False
         if not (w.isupper() or w.istitle()):
             return False
-    # Every word must contain at least one vowel
-    if not all(re.search(r'[AEIOUaeiou]', w) for w in words):
+        name_words.append(w)
+
+    if len(name_words) < 2:
         return False
-    # No word should be a known financial/business/card term
-    if any(w.upper() in _SKIP_WORDS for w in words):
+
+    if not all(re.search(r'[AEIOUaeiou]', w) for w in name_words):
         return False
+
+    if any(w.upper() in _SKIP_WORDS for w in name_words):
+        return False
+
     return True
 
 
@@ -69,13 +85,16 @@ def extract_transactions_from_text(lines):
         line_2 = lines[i + 1].strip()
         line_3 = lines[i + 2].strip()
 
-        # Detect cardholder section header (e.g. "JOHN DOE" or "Carlos Rivera")
-        if _is_cardholder_line(line_1):
+        # Detect a named cardholder transaction section.
+        # Citi statements use: <NAME> → "Standard Purchases" → transactions.
+        # Requiring the two-line pattern prevents false matches on the
+        # CARDHOLDER SUMMARY table and repeated page headers.
+        if _is_cardholder_line(line_1) and line_2.lower().startswith("standard purchases"):
             current_cardholder = line_1.strip().title()
-            i += 1
+            i += 2
             continue
 
-        # Payment transaction (3-line pattern)
+        # Payment transaction (3-line pattern: date / description / amount)
         if (
             len(line_1) >= 4 and line_1[:2].isdigit() and
             "PAYMENT" in line_2.upper() and
@@ -97,7 +116,7 @@ def extract_transactions_from_text(lines):
             i += 3
             continue
 
-        # Purchase transaction (4-line pattern)
+        # Purchase transaction (4-line pattern: sale date / post date / desc / amount)
         if i < len(lines) - 3:
             line_4 = lines[i + 3].strip()
             if (
