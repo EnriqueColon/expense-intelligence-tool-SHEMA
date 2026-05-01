@@ -33,6 +33,7 @@ except Exception as e:
 
 
 @app.post("/api/upload")
+@app.post("/api/index")
 @app.post("/")
 async def upload_pdf(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(".pdf"):
