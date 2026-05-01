@@ -174,3 +174,28 @@ select.category-select {
 select.category-select:focus { outline: none; border-color: #3b82f6; }
 
 .hidden { display: none !important; }
+
+/* Header right (user + sign out) */
+.header-inner { display: flex; align-items: center; justify-content: space-between; max-width: 1200px; margin: 0 auto; }
+.header-right { display: flex; align-items: center; gap: 0.75rem; }
+.user-badge { color: #93c5fd; font-size: 0.875rem; font-weight: 500; }
+.btn-signout { background: transparent; border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.4rem 0.9rem; font-size: 0.8rem; border-radius: 6px; cursor: pointer; transition: background 0.15s; }
+.btn-signout:hover { background: rgba(255,255,255,0.1); }
+
+/* Charts */
+.charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
+@media (max-width: 700px) { .charts-grid { grid-template-columns: 1fr; } }
+.chart-card .card-body { padding: 1.25rem 1.5rem; }
+.chart-title { font-size: 0.9rem; font-weight: 600; color: #334155; margin-bottom: 1rem; }
+
+/* Retrain section */
+.retrain-card .table-header { align-items: flex-start; }
+.retrain-hint { font-size: 0.82rem; color: #64748b; margin-top: 0.25rem; max-width: 500px; }
+.btn-retrain { background: #10b981; color: white; white-space: nowrap; flex-shrink: 0; }
+.btn-retrain:hover:not(:disabled) { background: #059669; }
+.btn-retrain:disabled { opacity: 0.6; cursor: not-allowed; }
+.retrain-result { margin: 0 1.5rem 1.25rem; padding: 0.9rem 1.1rem; border-radius: 8px; font-size: 0.875rem; line-height: 1.6; }
+.retrain-loading { background: #f0f9ff; border: 1px solid #bae6fd; color: #0369a1; }
+.retrain-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+.retrain-error   { background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; }
+.retrain-note    { font-size: 0.8rem; color: #475569; }

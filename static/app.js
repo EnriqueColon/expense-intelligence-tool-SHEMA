@@ -1,148 +1,223 @@
+// --- Auth ---
+const token    = localStorage.getItem('shema_token');
+const username = localStorage.getItem('shema_user');
+
+if (!token) { window.location.replace('/login'); }
+
+document.getElementById('user-display').textContent = username || '';
+
+function logout() {
+  localStorage.removeItem('shema_token');
+  localStorage.removeItem('shema_user');
+  window.location.replace('/login');
+}
+
+// --- State ---
+let transactions = [];
+let donutChart   = null;
+let barChart     = null;
+
 const CATEGORIES = [
   'Advertising & Marketing', 'Bank Charges & Fees', 'Business Meals & Entertainment',
-  'Computer & Internet', 'Dues & Subscriptions', 'Equipment & Supplies',
+  'Computer & Internet', 'Dues and Subscriptions', 'Equipment & Supplies',
   'Insurance', 'Legal & Professional', 'Meals & Entertainment',
-  'Office Supplies', 'Other Expense', 'Payroll', 'Postage & Shipping',
+  'Office Supplies', 'Other Expense', 'Postage & Shipping',
   'Rent', 'Repairs & Maintenance', 'Software', 'Travel',
   'Utilities', 'Vehicle', 'Unclassified'
 ];
 
-let transactions = [];
+const CHART_COLORS = [
+  '#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6',
+  '#06b6d4','#f97316','#84cc16','#ec4899','#64748b',
+  '#0ea5e9','#a78bfa','#34d399','#fbbf24','#f87171',
+  '#7dd3fc','#6ee7b7','#fcd34d','#fca5a5','#c4b5fd'
+];
 
+// --- Upload ---
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
-const loading  = document.getElementById('loading');
-const errorEl  = document.getElementById('error');
-const results  = document.getElementById('results');
+const loadingEl = document.getElementById('loading');
+const errorEl   = document.getElementById('error');
+const resultsEl = document.getElementById('results');
 
 dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
 dropZone.addEventListener('drop', e => {
-  e.preventDefault();
-  dropZone.classList.remove('dragover');
-  const file = e.dataTransfer.files[0];
-  if (file) handleFile(file);
+  e.preventDefault(); dropZone.classList.remove('dragover');
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
 });
 dropZone.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
 
 async function handleFile(file) {
-  if (!file.name.toLowerCase().endsWith('.pdf')) {
-    showError('Please upload a PDF file.');
-    return;
-  }
-
+  if (!file.name.toLowerCase().endsWith('.pdf')) { showError('Please upload a PDF file.'); return; }
   hideError();
   dropZone.classList.add('hidden');
-  loading.classList.remove('hidden');
-  results.classList.add('hidden');
-
+  loadingEl.classList.remove('hidden');
+  resultsEl.classList.add('hidden');
   const formData = new FormData();
   formData.append('file', file);
-
   try {
-    const res = await fetch('/api/upload', { method: 'POST', body: formData });
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token },
+      body: formData
+    });
+    if (res.status === 401) { logout(); return; }
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `Server error ${res.status}`);
+      throw new Error(err.detail || 'Server error ' + res.status);
     }
     const data = await res.json();
     transactions = data.transactions || [];
     render();
-    results.classList.remove('hidden');
+    resultsEl.classList.remove('hidden');
   } catch (err) {
     showError(err.message);
     dropZone.classList.remove('hidden');
   } finally {
-    loading.classList.add('hidden');
+    loadingEl.classList.add('hidden');
   }
 }
 
-function render() {
-  renderStats();
-  renderTable();
-}
+function render() { renderStats(); renderCharts(); renderTable(); }
 
 function renderStats() {
-  const total = transactions.length;
-  let purchases = 0, credits = 0, chargesCount = 0;
-
+  let charges = 0, credits = 0;
   transactions.forEach(t => {
-    const amt = parseFloat(t.Amount) || 0;
-    if (amt < 0) credits += Math.abs(amt);
-    else { purchases += amt; chargesCount++; }
+    const a = parseFloat(t.Amount) || 0;
+    if (a < 0) credits += Math.abs(a); else charges += a;
+  });
+  const fmt = v => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  document.getElementById('stats-grid').innerHTML =
+    '<div class="stat-card"><div class="stat-label">Total Transactions</div><div class="stat-value">' + transactions.length + '</div></div>' +
+    '<div class="stat-card amber"><div class="stat-label">Total Charges</div><div class="stat-value">' + fmt(charges) + '</div></div>' +
+    '<div class="stat-card green"><div class="stat-label">Total Credits / Payments</div><div class="stat-value">' + fmt(credits) + '</div></div>' +
+    '<div class="stat-card red"><div class="stat-label">Net Spend</div><div class="stat-value">' + fmt(charges - credits) + '</div></div>' +
+    '<div class="stat-card"><div class="stat-label">Processed By</div><div class="stat-value" style="font-size:1.1rem">' + (username || '-') + '</div></div>';
+}
+
+function renderCharts() {
+  const totals = {};
+  transactions.forEach(t => {
+    const a = parseFloat(t.Amount) || 0;
+    if (a <= 0) return;
+    const cat = t.Category || 'Unclassified';
+    totals[cat] = (totals[cat] || 0) + a;
+  });
+  const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+  const labels = sorted.map(function(x){ return x[0]; });
+  const data   = sorted.map(function(x){ return +x[1].toFixed(2); });
+
+  if (donutChart) donutChart.destroy();
+  donutChart = new Chart(document.getElementById('chart-donut'), {
+    type: 'doughnut',
+    data: { labels: labels, datasets: [{ data: data, backgroundColor: CHART_COLORS.slice(0, labels.length), borderWidth: 2 }] },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 11 }, padding: 10 } },
+        tooltip: { callbacks: { label: function(ctx) { return ' $' + ctx.parsed.toLocaleString('en-US', { minimumFractionDigits: 2 }); } } }
+      }
+    }
   });
 
-  const grid = document.getElementById('stats-grid');
-  grid.innerHTML = `
-    <div class="stat-card">
-      <div class="stat-label">Total Transactions</div>
-      <div class="stat-value">${total}</div>
-    </div>
-    <div class="stat-card amber">
-      <div class="stat-label">Total Charges</div>
-      <div class="stat-value">$${purchases.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
-    </div>
-    <div class="stat-card green">
-      <div class="stat-label">Total Credits / Payments</div>
-      <div class="stat-value">$${credits.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
-    </div>
-    <div class="stat-card red">
-      <div class="stat-label">Net Spend</div>
-      <div class="stat-value">$${(purchases - credits).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
-    </div>
-  `;
+  const top = sorted.slice(0, 10);
+  if (barChart) barChart.destroy();
+  barChart = new Chart(document.getElementById('chart-bar'), {
+    type: 'bar',
+    data: {
+      labels: top.map(function(x){ return x[0]; }),
+      datasets: [{ label: 'Total ($)', data: top.map(function(x){ return +x[1].toFixed(2); }), backgroundColor: '#3b82f6', borderRadius: 4 }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { x: { ticks: { callback: function(v) { return '$' + Number(v).toLocaleString(); } } } }
+    }
+  });
 }
 
 function renderTable() {
   const tbody = document.getElementById('table-body');
   tbody.innerHTML = '';
-
-  transactions.forEach((txn, i) => {
+  transactions.forEach(function(txn, i) {
     const amt = parseFloat(txn.Amount) || 0;
-    const isNeg = amt < 0;
     const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${txn['Sale Date'] || ''}</td>
-      <td>${txn['Post Date'] || ''}</td>
-      <td class="desc" title="${escHtml(txn.Description || '')}">${escHtml(txn.Description || '')}</td>
-      <td class="amount${isNeg ? ' negative' : ''}">$${Math.abs(amt).toFixed(2)}</td>
-      <td>
-        <select class="category-select" onchange="updateCategory(${i}, this.value)">
-          ${buildOptions(txn.Category)}
-        </select>
-      </td>
-    `;
+    tr.innerHTML =
+      '<td>' + (txn['Sale Date'] || '') + '</td>' +
+      '<td>' + (txn['Post Date'] || '') + '</td>' +
+      '<td class="desc" title="' + esc(txn.Description || '') + '">' + esc(txn.Description || '') + '</td>' +
+      '<td class="amount' + (amt < 0 ? ' negative' : '') + '">$' + Math.abs(amt).toFixed(2) + '</td>' +
+      '<td><select class="category-select" onchange="updateCategory(' + i + ', this.value)">' + buildOptions(txn.Category) + '</select></td>' +
+      '<td>' + esc(txn['Processed By'] || username || '') + '</td>';
     tbody.appendChild(tr);
   });
 }
 
 function buildOptions(selected) {
-  const cats = CATEGORIES.includes(selected) ? CATEGORIES : [selected, ...CATEGORIES].filter(Boolean);
-  return [...new Set(cats)]
-    .map(c => `<option value="${escHtml(c)}"${c === selected ? ' selected' : ''}>${escHtml(c)}</option>`)
-    .join('');
+  const all = CATEGORIES.indexOf(selected) >= 0 ? CATEGORIES : [selected].concat(CATEGORIES).filter(Boolean);
+  const unique = all.filter(function(v, i, a) { return a.indexOf(v) === i; });
+  return unique.map(function(c) {
+    return '<option value="' + esc(c) + '"' + (c === selected ? ' selected' : '') + '>' + esc(c) + '</option>';
+  }).join('');
 }
 
-function updateCategory(index, value) {
-  transactions[index].Category = value;
+function updateCategory(i, val) {
+  transactions[i].Category = val;
+  renderCharts();
+  renderStats();
 }
 
 function downloadCSV() {
-  const headers = ['Sale Date', 'Post Date', 'Description', 'Amount', 'Category'];
-  const rows = transactions.map(t =>
-    headers.map(h => `"${String(t[h] || '').replace(/"/g, '""')}"`).join(',')
-  );
-  const csv = [headers.join(','), ...rows].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = Object.assign(document.createElement('a'), { href: url, download: 'classified_expenses.csv' });
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  const headers = ['Sale Date', 'Post Date', 'Description', 'Amount', 'Category', 'Processed By'];
+  const rows = transactions.map(function(t) {
+    return headers.map(function(h) { return '"' + String(t[h] || '').replace(/"/g, '""') + '"'; }).join(',');
+  });
+  const blob = new Blob([[headers.join(',')].concat(rows).join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'classified_expenses.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+async function retrainModel() {
+  const btn = document.getElementById('retrain-btn');
+  const resultEl = document.getElementById('retrain-result');
+  btn.disabled = true;
+  btn.textContent = 'Retraining...';
+  resultEl.className = 'retrain-result retrain-loading';
+  resultEl.textContent = 'Training model on current transactions...';
+  resultEl.classList.remove('hidden');
+  try {
+    const res = await fetch('/api/retrain', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transactions: transactions })
+    });
+    if (res.status === 401) { logout(); return; }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Retrain failed');
+    const githubMsg = (data.github && data.github.success)
+      ? 'Model committed to GitHub — Vercel is redeploying with the updated model.'
+      : 'Model updated for this session. Set GITHUB_TOKEN in Vercel env vars to persist permanently.';
+    resultEl.className = 'retrain-result retrain-success';
+    resultEl.innerHTML =
+      '<strong>&#10003; Model retrained successfully</strong><br>' +
+      'Trained on <strong>' + data.samples + '</strong> transactions &middot; ' +
+      '<strong>' + data.categories.length + '</strong> categories learned<br>' +
+      '<span class="retrain-note">' + githubMsg + '</span>';
+  } catch (err) {
+    resultEl.className = 'retrain-result retrain-error';
+    resultEl.textContent = 'Retrain failed: ' + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Retrain Model';
+  }
 }
 
 function showError(msg) { errorEl.textContent = msg; errorEl.classList.remove('hidden'); }
-function hideError() { errorEl.classList.add('hidden'); }
-function escHtml(str) { return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function hideError()    { errorEl.classList.add('hidden'); }
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}

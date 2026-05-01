@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SHEMA Expense Intelligence Tool</title>
   <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -17,12 +18,16 @@
           <div class="logo-sub">Expense Intelligence Tool</div>
         </div>
       </div>
+      <div class="header-right">
+        <span class="user-badge" id="user-display"></span>
+        <button class="btn btn-signout" onclick="logout()">Sign Out</button>
+      </div>
     </div>
   </header>
 
   <main>
 
-    <!-- Upload Card -->
+    <!-- Upload -->
     <div class="card" id="upload-card">
       <div class="card-body">
         <div class="drop-zone" id="drop-zone">
@@ -45,7 +50,23 @@
       <!-- Stats -->
       <div class="stats-grid" id="stats-grid"></div>
 
-      <!-- Table -->
+      <!-- Charts -->
+      <div class="charts-grid">
+        <div class="card chart-card">
+          <div class="card-body">
+            <h3 class="chart-title">Spend by Category</h3>
+            <canvas id="chart-donut"></canvas>
+          </div>
+        </div>
+        <div class="card chart-card">
+          <div class="card-body">
+            <h3 class="chart-title">Top Categories by Amount</h3>
+            <canvas id="chart-bar"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Transactions Table -->
       <div class="card">
         <div class="table-header">
           <h2>Transactions</h2>
@@ -60,11 +81,24 @@
                 <th>Description</th>
                 <th>Amount</th>
                 <th>Category</th>
+                <th>Processed By</th>
               </tr>
             </thead>
             <tbody id="table-body"></tbody>
           </table>
         </div>
+      </div>
+
+      <!-- Retrain -->
+      <div class="card retrain-card">
+        <div class="table-header">
+          <div>
+            <h2>Retrain Model</h2>
+            <p class="retrain-hint">Correct the categories in the table above, then click Retrain to improve future classifications.</p>
+          </div>
+          <button class="btn btn-retrain" id="retrain-btn" onclick="retrainModel()">&#8635; Retrain Model</button>
+        </div>
+        <div class="retrain-result hidden" id="retrain-result"></div>
       </div>
 
     </div>
