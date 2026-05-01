@@ -225,13 +225,82 @@ function esc(s) {
 // --- Vendor Analysis ---
 let vendorChart = null;
 
+var VENDOR_MAP = [
+  [/amzn|amazon/i,                         'Amazon'],
+  [/upwork/i,                               'Upwork'],
+  [/godaddy/i,                              'GoDaddy'],
+  [/intuit|quickbooks|turbotax/i,           'Intuit / QuickBooks'],
+  [/at&t|att\.com/i,                        'AT&T'],
+  [/google/i,                               'Google'],
+  [/microsoft|msft/i,                       'Microsoft'],
+  [/apple\.com|apple store/i,               'Apple'],
+  [/dropbox/i,                              'Dropbox'],
+  [/zoom/i,                                 'Zoom'],
+  [/slack/i,                                'Slack'],
+  [/adobe/i,                                'Adobe'],
+  [/shopify/i,                              'Shopify'],
+  [/paypal/i,                               'PayPal'],
+  [/stripe/i,                               'Stripe'],
+  [/square/i,                               'Square'],
+  [/uber\s?eats|ubereats/i,                 'Uber Eats'],
+  [/\buber\b/i,                             'Uber'],
+  [/lyft/i,                                 'Lyft'],
+  [/doordash/i,                             'DoorDash'],
+  [/grubhub/i,                              'Grubhub'],
+  [/fedex/i,                                'FedEx'],
+  [/usps/i,                                 'USPS'],
+  [/\bups\b/i,                              'UPS'],
+  [/dhl/i,                                  'DHL'],
+  [/verizon/i,                              'Verizon'],
+  [/t-mobile|tmobile/i,                     'T-Mobile'],
+  [/comcast|xfinity/i,                      'Comcast / Xfinity'],
+  [/notion/i,                               'Notion'],
+  [/canva/i,                                'Canva'],
+  [/mailchimp/i,                            'Mailchimp'],
+  [/hubspot/i,                              'HubSpot'],
+  [/salesforce/i,                           'Salesforce'],
+  [/docusign/i,                             'DocuSign'],
+  [/propstream/i,                           'PropStream'],
+  [/costar/i,                               'CoStar'],
+  [/openai/i,                               'OpenAI'],
+  [/chatgpt/i,                              'ChatGPT'],
+];
+
+function normalizeVendor(desc) {
+  var s = (desc || '').trim();
+
+  // Check known vendor patterns first
+  for (var i = 0; i < VENDOR_MAP.length; i++) {
+    if (VENDOR_MAP[i][0].test(s)) return VENDOR_MAP[i][1];
+  }
+
+  // Strip common noise: everything after * (e.g. "AMZN Mktp US*G293S70U3")
+  s = s.replace(/\*.*$/, '').trim();
+
+  // Strip phone numbers (sequences of 7+ digits possibly with dashes)
+  s = s.replace(/[\s-]?\d[\d\s-]{6,}\d/g, '').trim();
+
+  // Strip trailing 2-letter state code (e.g. "VENDOR NAME CA")
+  s = s.replace(/\s+[A-Z]{2}$/, '').trim();
+
+  // Strip URLs
+  s = s.replace(/https?:\/\/\S+/gi, '').trim();
+  s = s.replace(/\w+\.(com|net|org|io|co)\b/gi, '').trim();
+
+  // Take first 3 meaningful words
+  var words = s.split(/\s+/).filter(Boolean).slice(0, 3);
+  s = words.join(' ');
+
+  return s || 'Unknown';
+}
+
 function renderVendorAnalysis() {
   // Build vendor totals from positive-amount transactions only
   var vendorMap = {};
   transactions.forEach(function(t) {
     var amt = parseFloat(t.Amount) || 0;
     if (amt <= 0) return;
-    var vendor = (t.Description || 'Unknown').trim();
+    var vendor = normalizeVendor(t.Description);
     if (!vendorMap[vendor]) vendorMap[vendor] = { count: 0, total: 0 };
     vendorMap[vendor].count += 1;
     vendorMap[vendor].total += amt;

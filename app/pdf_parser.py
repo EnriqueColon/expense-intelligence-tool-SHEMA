@@ -2,24 +2,41 @@ import fitz
 import re
 import pandas as pd
 
-# Words that appear in all-caps in statements but are NOT cardholder names
 _SKIP_WORDS = {
+    # Statement / financial terms
     'ACCOUNT', 'SUMMARY', 'STATEMENT', 'CLOSING', 'CREDIT', 'PAYMENT',
     'BALANCE', 'TOTAL', 'MINIMUM', 'NEW', 'PREVIOUS', 'TRANSACTIONS',
     'DATE', 'DESCRIPTION', 'AMOUNT', 'PURCHASES', 'FEES', 'INTEREST',
-    'ADJUSTMENTS', 'REWARDS', 'POINTS', 'ACTIVITY', 'DETAILS', 'DUE',
-    'BILLING', 'PERIOD', 'OPENING', 'AVAILABLE', 'CASH', 'ADVANCE',
-    'FOREIGN', 'CONTINUED', 'PAGE', 'IMPORTANT', 'NOTICE', 'INFORMATION'
+    'ADJUSTMENTS', 'ACTIVITY', 'DETAILS', 'DUE', 'BILLING', 'PERIOD',
+    'OPENING', 'AVAILABLE', 'CASH', 'ADVANCE', 'FOREIGN', 'CONTINUED',
+    'PAGE', 'IMPORTANT', 'NOTICE', 'INFORMATION',
+    # Rewards / loyalty
+    'REWARDS', 'POINTS', 'EARNED', 'EARN', 'MILES', 'BONUS', 'CASHBACK',
+    # Business entity words that appear in section headers
+    'SOFTWARE', 'SERVICES', 'SERVICE', 'GROUP', 'MANAGEMENT', 'SYSTEMS',
+    'SOLUTIONS', 'TECHNOLOGIES', 'TECHNOLOGY', 'INC', 'LLC', 'CORP',
+    'LIMITED', 'DIRECT', 'ONLINE', 'DIGITAL', 'GLOBAL', 'NATIONAL',
+    'INTERNATIONAL', 'ENTERPRISES', 'ASSOCIATES', 'PARTNERS', 'CONSULTING',
+    'HOLDINGS', 'STORAGE', 'PROPERTIES', 'REALTY', 'FINANCIAL',
 }
 
 
 def _is_cardholder_line(line: str) -> bool:
-    """Return True if line looks like an all-caps cardholder name (2-4 words)."""
+    """
+    Return True only if line looks like a personal cardholder name.
+    Requirements: 2-3 all-uppercase words, each 4+ letters, each containing
+    at least one vowel, none matching known financial/business keywords.
+    """
     words = line.strip().split()
-    if len(words) < 2 or len(words) > 4:
+    if len(words) < 2 or len(words) > 3:
         return False
-    if not all(re.match(r'^[A-Z]+$', w) for w in words):
+    # Every word must be purely uppercase letters, 4-20 chars
+    if not all(re.match(r'^[A-Z]{4,20}$', w) for w in words):
         return False
+    # Every word must contain at least one vowel (real names do; abbreviations don't)
+    if not all(re.search(r'[AEIOU]', w) for w in words):
+        return False
+    # No word should be a known financial/business term
     if any(w in _SKIP_WORDS for w in words):
         return False
     return True
