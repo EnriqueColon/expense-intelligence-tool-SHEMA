@@ -28,20 +28,24 @@ _SKIP_WORDS = {
 def _is_cardholder_line(line: str) -> bool:
     """
     Return True only if line looks like a personal cardholder name.
-    Requirements: 2-3 all-uppercase words, each 4+ letters, each containing
-    at least one vowel, none matching known financial/business keywords.
+    Accepts both ALL-CAPS ("CARLOS RIVERA") and Title Case ("Carlos Rivera").
+    Requirements: 2-3 words, each 2-20 alpha chars, each with a vowel,
+    none matching known financial/business/card keywords.
     """
     words = line.strip().split()
     if len(words) < 2 or len(words) > 3:
         return False
-    # Every word must be purely uppercase letters, 4-20 chars
-    if not all(re.match(r'^[A-Z]{4,20}$', w) for w in words):
+    # Every word must be purely alphabetic, 2-20 chars, all-caps OR title-case
+    for w in words:
+        if not re.match(r'^[A-Za-z]{2,20}$', w):
+            return False
+        if not (w.isupper() or w.istitle()):
+            return False
+    # Every word must contain at least one vowel
+    if not all(re.search(r'[AEIOUaeiou]', w) for w in words):
         return False
-    # Every word must contain at least one vowel (real names do; abbreviations don't)
-    if not all(re.search(r'[AEIOU]', w) for w in words):
-        return False
-    # No word should be a known financial/business term
-    if any(w in _SKIP_WORDS for w in words):
+    # No word should be a known financial/business/card term
+    if any(w.upper() in _SKIP_WORDS for w in words):
         return False
     return True
 
@@ -65,9 +69,9 @@ def extract_transactions_from_text(lines):
         line_2 = lines[i + 1].strip()
         line_3 = lines[i + 2].strip()
 
-        # Detect cardholder section header (e.g. "JOHN DOE", "CARLOS RIVERA")
+        # Detect cardholder section header (e.g. "JOHN DOE" or "Carlos Rivera")
         if _is_cardholder_line(line_1):
-            current_cardholder = line_1.title()
+            current_cardholder = line_1.strip().title()
             i += 1
             continue
 
