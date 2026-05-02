@@ -103,18 +103,22 @@ def extract_transactions_from_text(lines):
                 continue
 
             # First occurrence: require "Standard Purchases" (exact or continuation
-            # variant) within the next 10 lines to avoid false-positives in the
-            # CARDHOLDER SUMMARY table. Stop early on a transaction date.
+            # variant) within the next 25 lines.
+            # The date-break is intentionally absent: Citi PDFs interleave
+            # AAdvantage miles content (which contains MM/DD date strings) between
+            # the cardholder name and "Standard Purchases". That interleaved block
+            # was causing the break to fire before "Standard Purchases" was found,
+            # leaving the cardholder undetected. The Cardholder Summary table is
+            # safe because its "Standard Purchases $X,XXX" rows always carry an
+            # amount on the same line and will NOT match this regex.
             found_at = -1
-            for j in range(i + 1, min(i + 11, len(lines))):
+            for j in range(i + 1, min(i + 26, len(lines))):
                 s = lines[j].strip()
                 # Matches "Standard Purchases", "Standard Purchases, Cont'd", etc.
                 # Does NOT match "Standard Purchases  $1,234.56" (has $ after space).
                 if re.match(r'^standard purchases(\s*$|,|\s+cont)', s, re.IGNORECASE):
                     found_at = j
                     break
-                if re.match(r'^\d{2}/\d{2}', s):
-                    break  # hit a transaction date — stop searching
             if found_at >= 0:
                 current_cardholder = name_title
                 confirmed_cardholders.add(name_title)
