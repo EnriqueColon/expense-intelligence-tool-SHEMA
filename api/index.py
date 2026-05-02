@@ -379,6 +379,28 @@ def delete_batch(batch_id: int, username: str = Depends(verify_token)):
     finally:
         conn.close()
 
+@app.get("/api/transactions/analytics")
+def get_analytics(username: str = Depends(verify_token)):
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT
+                TO_CHAR(tb.created_at, 'YYYY-MM') AS month,
+                t.category,
+                ROUND(SUM(t.amount)::numeric, 2)::float AS total
+            FROM transactions t
+            JOIN transaction_batches tb ON t.batch_id = tb.id
+            WHERE t.amount > 0
+            GROUP BY TO_CHAR(tb.created_at, 'YYYY-MM'), t.category
+            ORDER BY month, t.category
+        """)
+        return {"data": [dict(r) for r in cur.fetchall()]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 @app.get("/api/health")
 def health():
     return {

@@ -278,3 +278,38 @@ select.category-select:focus { outline: none; border-color: #3b82f6; }
   background: #f8fafc;
 }
 .notes-input:focus { outline: none; border-color: #7c3aed; background: white; }
+
+/* Bulk upload progress bar */
+.bulk-progress {
+  margin-top: 1rem;
+  width: 100%;
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.bulk-bar-track {
+  background: #e2e8f0;
+  border-radius: 99px;
+  height: 6px;
+  overflow: hidden;
+}
+.bulk-bar-fill {
+  height: 100%;
+  background: #3b82f6;
+  border-radius: 99px;
+  width: 0%;
+  transition: width 0.3s ease;
+}
+
+/* Analytics section */
+.analytics-empty {
+  padding: 2rem 0;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+.filter-label {
+  font-size: 0.82rem;
+  color: #64748b;
+  font-weight: 500;
+}

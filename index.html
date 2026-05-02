@@ -28,8 +28,8 @@
   <!-- Tab navigation -->
   <div class="view-tabs">
     <div class="tabs-inner">
-      <button class="tab-btn active" id="tab-upload" onclick="switchTab('upload')">Upload</button>
-      <button class="tab-btn" id="tab-history" onclick="switchTab('history')">Transaction History</button>
+      <button class="tab-btn active" id="tab-upload"  onclick="switchTab('upload')">Upload</button>
+      <button class="tab-btn"        id="tab-history" onclick="switchTab('history')">Transaction History</button>
     </div>
   </div>
 
@@ -38,18 +38,20 @@
     <!-- ===== UPLOAD VIEW ===== -->
     <div id="view-upload">
 
-      <!-- Upload -->
       <div class="card" id="upload-card">
         <div class="card-body">
           <div class="drop-zone" id="drop-zone">
             <div class="drop-icon">&#8679;</div>
-            <h3>Drop your credit card PDF here</h3>
-            <p>or click to browse files</p>
-            <input type="file" id="file-input" accept=".pdf" hidden />
+            <h3>Drop credit card PDFs here</h3>
+            <p>or click to browse &mdash; multiple files supported</p>
+            <input type="file" id="file-input" accept=".pdf" multiple hidden />
           </div>
           <div class="loading hidden" id="loading">
             <div class="spinner"></div>
-            <p>Parsing and classifying transactions&hellip;</p>
+            <p id="loading-text">Parsing and classifying transactions&hellip;</p>
+            <div class="bulk-progress hidden" id="bulk-progress">
+              <div class="bulk-bar-track"><div class="bulk-bar-fill" id="bulk-bar"></div></div>
+            </div>
           </div>
           <div class="error-msg hidden" id="error"></div>
         </div>
@@ -58,10 +60,8 @@
       <!-- Results -->
       <div id="results" class="hidden">
 
-        <!-- Stats -->
         <div class="stats-grid" id="stats-grid"></div>
 
-        <!-- Charts -->
         <div class="charts-grid">
           <div class="card chart-card">
             <div class="card-body">
@@ -77,7 +77,6 @@
           </div>
         </div>
 
-        <!-- Transactions Table -->
         <div class="card">
           <div class="table-header">
             <h2>Transactions</h2>
@@ -91,12 +90,8 @@
             <table>
               <thead>
                 <tr>
-                  <th>Sale Date</th>
-                  <th>Post Date</th>
-                  <th>Description</th>
-                  <th>Amount</th>
-                  <th>Category</th>
-                  <th>Cardholder</th>
+                  <th>Sale Date</th><th>Post Date</th><th>Description</th>
+                  <th>Amount</th><th>Category</th><th>Cardholder</th>
                 </tr>
               </thead>
               <tbody id="table-body"></tbody>
@@ -104,7 +99,6 @@
           </div>
         </div>
 
-        <!-- Vendor Analysis -->
         <div class="card">
           <div class="table-header">
             <h2>Vendor Analysis</h2>
@@ -119,10 +113,7 @@
               <table id="vendor-table">
                 <thead>
                   <tr>
-                    <th>Vendor</th>
-                    <th>Transactions</th>
-                    <th>Total Spend</th>
-                    <th>Avg. Transaction</th>
+                    <th>Vendor</th><th>Transactions</th><th>Total Spend</th><th>Avg. Transaction</th>
                   </tr>
                 </thead>
                 <tbody id="vendor-body"></tbody>
@@ -131,12 +122,11 @@
           </div>
         </div>
 
-        <!-- Retrain -->
         <div class="card retrain-card">
           <div class="table-header">
             <div>
               <h2>Retrain Model</h2>
-              <p class="retrain-hint">Correct the categories in the table above, then click Retrain to improve future classifications.</p>
+              <p class="retrain-hint">Correct the categories above, then click Retrain to improve future classifications.</p>
             </div>
             <button class="btn btn-retrain" id="retrain-btn" onclick="retrainModel()">&#8635; Retrain Model</button>
           </div>
@@ -149,6 +139,26 @@
     <!-- ===== HISTORY VIEW ===== -->
     <div id="view-history" class="hidden">
 
+      <!-- Monthly line chart -->
+      <div class="card">
+        <div class="table-header">
+          <h2>Monthly Spending Trend</h2>
+          <div class="table-actions">
+            <label class="filter-label" for="category-filter">Category:</label>
+            <select id="category-filter" class="category-select" style="min-width:200px" onchange="updateAnalyticsChart()">
+              <option value="__all__">Top Categories</option>
+              <option value="__total__">Total Spend</option>
+            </select>
+          </div>
+        </div>
+        <div class="card-body" style="padding-top:0.25rem">
+          <div id="analytics-empty" class="analytics-empty hidden">
+            No saved data yet &mdash; upload and save PDFs to see trends here.
+          </div>
+          <canvas id="chart-line" style="max-height:340px"></canvas>
+        </div>
+      </div>
+
       <!-- Batch list -->
       <div class="card">
         <div class="table-header">
@@ -160,17 +170,13 @@
           <p style="color:#64748b;font-size:0.9rem">Loading history&hellip;</p>
         </div>
         <div id="history-empty" class="hidden" style="padding:2rem 1.5rem;color:#64748b;font-size:0.9rem">
-          No saved batches yet. Upload a PDF and click <strong>Save to Database</strong>.
+          No saved batches yet. Upload PDFs and click <strong>Save to Database</strong>.
         </div>
-        <div class="table-wrapper" id="history-table-wrap">
-          <table id="history-table">
+        <div class="table-wrapper" id="history-table-wrap" style="display:none">
+          <table>
             <thead>
               <tr>
-                <th>Date Saved</th>
-                <th>Filename</th>
-                <th>Transactions</th>
-                <th>Uploaded By</th>
-                <th></th>
+                <th>Date Saved</th><th>Filename</th><th>Transactions</th><th>Uploaded By</th><th></th>
               </tr>
             </thead>
             <tbody id="history-body"></tbody>
@@ -195,13 +201,8 @@
             <table>
               <thead>
                 <tr>
-                  <th>Sale Date</th>
-                  <th>Post Date</th>
-                  <th>Description</th>
-                  <th>Amount</th>
-                  <th>Category</th>
-                  <th>Cardholder</th>
-                  <th>Notes</th>
+                  <th>Sale Date</th><th>Post Date</th><th>Description</th>
+                  <th>Amount</th><th>Category</th><th>Cardholder</th><th>Notes</th>
                 </tr>
               </thead>
               <tbody id="batch-detail-body"></tbody>

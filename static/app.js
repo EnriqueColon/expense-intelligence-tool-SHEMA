@@ -22,12 +22,14 @@ function switchTab(tab) {
 }
 
 // --- State ---
-let transactions   = [];
-let currentFile    = '';
-let donutChart     = null;
-let barChart       = null;
-let activeBatchId  = null;
-let batchTxns      = [];
+let transactions  = [];
+let currentFile   = '';
+let donutChart    = null;
+let barChart      = null;
+let activeBatchId = null;
+let batchTxns     = [];
+let lineChart     = null;
+let analyticsData = [];
 
 const CATEGORIES = [
   'Advertising & Marketing', 'Bank Charges & Fees', 'Business Meals & Entertainment',
@@ -45,8 +47,8 @@ const CHART_COLORS = [
   '#7dd3fc','#6ee7b7','#fcd34d','#fca5a5','#c4b5fd'
 ];
 
-// --- Upload ---
-const dropZone = document.getElementById('drop-zone');
+// --- Upload (supports multiple files) ---
+const dropZone  = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 const loadingEl = document.getElementById('loading');
 const errorEl   = document.getElementById('error');
@@ -56,42 +58,79 @@ dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classL
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
 dropZone.addEventListener('drop', e => {
   e.preventDefault(); dropZone.classList.remove('dragover');
-  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
 });
 dropZone.addEventListener('click', () => fileInput.click());
-fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+fileInput.addEventListener('change', e => { if (e.target.files.length) handleFiles(e.target.files); });
 
-async function handleFile(file) {
-  if (!file.name.toLowerCase().endsWith('.pdf')) { showError('Please upload a PDF file.'); return; }
+async function handleFiles(fileList) {
+  const files = Array.from(fileList).filter(f => f.name.toLowerCase().endsWith('.pdf'));
+  if (!files.length) { showError('Please upload PDF files.'); return; }
+
   hideError();
-  currentFile = file.name;
   dropZone.classList.add('hidden');
   loadingEl.classList.remove('hidden');
   resultsEl.classList.add('hidden');
   resetSaveStatus();
-  const formData = new FormData();
-  formData.append('file', file);
-  try {
-    const res = await fetch('/api/upload', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + token },
-      body: formData
-    });
-    if (res.status === 401) { logout(); return; }
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Server error ' + res.status);
+
+  const loadingText = document.getElementById('loading-text');
+  const bulkProgress = document.getElementById('bulk-progress');
+  const bulkBar = document.getElementById('bulk-bar');
+  const multi = files.length > 1;
+
+  if (multi) bulkProgress.classList.remove('hidden');
+
+  const allTransactions = [];
+  const fileNames = [];
+  const errors = [];
+
+  for (let idx = 0; idx < files.length; idx++) {
+    const file = files[idx];
+    loadingText.textContent = multi
+      ? `Processing file ${idx + 1} of ${files.length}: ${file.name}`
+      : 'Parsing and classifying transactions…';
+    if (multi) bulkBar.style.width = Math.round((idx / files.length) * 100) + '%';
+
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+        body: formData
+      });
+      if (res.status === 401) { logout(); return; }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        errors.push(file.name + ': ' + (err.detail || 'Server error'));
+        continue;
+      }
+      const data = await res.json();
+      allTransactions.push(...(data.transactions || []));
+      fileNames.push(file.name);
+    } catch (err) {
+      errors.push(file.name + ': ' + err.message);
     }
-    const data = await res.json();
-    transactions = data.transactions || [];
-    render();
-    resultsEl.classList.remove('hidden');
-  } catch (err) {
-    showError(err.message);
-    dropZone.classList.remove('hidden');
-  } finally {
-    loadingEl.classList.add('hidden');
   }
+
+  if (multi) bulkBar.style.width = '100%';
+  loadingEl.classList.add('hidden');
+  bulkProgress.classList.add('hidden');
+  bulkBar.style.width = '0%';
+  fileInput.value = '';
+
+  if (!allTransactions.length) {
+    showError('No transactions found. ' + (errors.length ? errors.join(' | ') : ''));
+    dropZone.classList.remove('hidden');
+    return;
+  }
+
+  if (errors.length) showError('Some files had errors: ' + errors.join(' | '));
+
+  currentFile = fileNames.join(', ');
+  transactions = allTransactions;
+  render();
+  resultsEl.classList.remove('hidden');
 }
 
 function render() { renderStats(); renderCharts(); renderTable(); renderVendorAnalysis(); }
@@ -120,18 +159,18 @@ function renderCharts() {
     totals[cat] = (totals[cat] || 0) + a;
   });
   const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]);
-  const labels = sorted.map(function(x){ return x[0]; });
-  const data   = sorted.map(function(x){ return +x[1].toFixed(2); });
+  const labels = sorted.map(x => x[0]);
+  const data   = sorted.map(x => +x[1].toFixed(2));
 
   if (donutChart) donutChart.destroy();
   donutChart = new Chart(document.getElementById('chart-donut'), {
     type: 'doughnut',
-    data: { labels: labels, datasets: [{ data: data, backgroundColor: CHART_COLORS.slice(0, labels.length), borderWidth: 2 }] },
+    data: { labels, datasets: [{ data, backgroundColor: CHART_COLORS.slice(0, labels.length), borderWidth: 2 }] },
     options: {
       responsive: true,
       plugins: {
         legend: { position: 'bottom', labels: { font: { size: 11 }, padding: 10 } },
-        tooltip: { callbacks: { label: function(ctx) { return ' $' + ctx.parsed.toLocaleString('en-US', { minimumFractionDigits: 2 }); } } }
+        tooltip: { callbacks: { label: ctx => ' $' + ctx.parsed.toLocaleString('en-US', { minimumFractionDigits: 2 }) } }
       }
     }
   });
@@ -141,13 +180,13 @@ function renderCharts() {
   barChart = new Chart(document.getElementById('chart-bar'), {
     type: 'bar',
     data: {
-      labels: top.map(function(x){ return x[0]; }),
-      datasets: [{ label: 'Total ($)', data: top.map(function(x){ return +x[1].toFixed(2); }), backgroundColor: '#3b82f6', borderRadius: 4 }]
+      labels: top.map(x => x[0]),
+      datasets: [{ label: 'Total ($)', data: top.map(x => +x[1].toFixed(2)), backgroundColor: '#3b82f6', borderRadius: 4 }]
     },
     options: {
       indexAxis: 'y', responsive: true,
       plugins: { legend: { display: false } },
-      scales: { x: { ticks: { callback: function(v) { return '$' + Number(v).toLocaleString(); } } } }
+      scales: { x: { ticks: { callback: v => '$' + Number(v).toLocaleString() } } }
     }
   });
 }
@@ -171,10 +210,10 @@ function renderTable() {
 
 function buildOptions(selected) {
   const all = CATEGORIES.indexOf(selected) >= 0 ? CATEGORIES : [selected].concat(CATEGORIES).filter(Boolean);
-  const unique = all.filter(function(v, i, a) { return a.indexOf(v) === i; });
-  return unique.map(function(c) {
-    return '<option value="' + esc(c) + '"' + (c === selected ? ' selected' : '') + '>' + esc(c) + '</option>';
-  }).join('');
+  const unique = all.filter((v, i, a) => a.indexOf(v) === i);
+  return unique.map(c =>
+    '<option value="' + esc(c) + '"' + (c === selected ? ' selected' : '') + '>' + esc(c) + '</option>'
+  ).join('');
 }
 
 function updateCategory(i, val) {
@@ -185,14 +224,10 @@ function updateCategory(i, val) {
 
 function downloadCSV() {
   const headers = ['Sale Date', 'Post Date', 'Description', 'Amount', 'Category', 'Cardholder', 'Processed By'];
-  const rows = transactions.map(function(t) {
-    return headers.map(function(h) { return '"' + String(t[h] || '').replace(/"/g, '""') + '"'; }).join(',');
-  });
-  const blob = new Blob([[headers.join(',')].concat(rows).join('\n')], { type: 'text/csv' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'classified_expenses.csv';
-  document.body.appendChild(a); a.click(); a.remove();
+  const rows = transactions.map(t =>
+    headers.map(h => '"' + String(t[h] || '').replace(/"/g, '""') + '"').join(',')
+  );
+  triggerCSVDownload([headers.join(',')].concat(rows).join('\n'), 'classified_expenses.csv');
 }
 
 async function retrainModel() {
@@ -207,14 +242,14 @@ async function retrainModel() {
     const res = await fetch('/api/retrain', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ transactions: transactions })
+      body: JSON.stringify({ transactions })
     });
     if (res.status === 401) { logout(); return; }
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Retrain failed');
     const persistMsg = data.persisted
       ? 'Model saved to Vercel Blob — will be used on all future requests.'
-      : 'Model updated for this session. To persist across restarts, add Vercel Blob Storage to your project.';
+      : 'Model updated for this session only.';
     resultEl.className = 'retrain-result retrain-success';
     resultEl.innerHTML =
       '<strong>&#10003; Model retrained successfully</strong><br>' +
@@ -230,12 +265,6 @@ async function retrainModel() {
   }
 }
 
-function showError(msg) { errorEl.textContent = msg; errorEl.classList.remove('hidden'); }
-function hideError()    { errorEl.classList.add('hidden'); }
-function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
 // --- Save to Database ---
 function resetSaveStatus() {
   const btn = document.getElementById('save-btn');
@@ -243,7 +272,6 @@ function resetSaveStatus() {
   btn.disabled = false;
   btn.textContent = '⇓ Save to Database';
   status.className = 'save-status hidden';
-  status.textContent = '';
 }
 
 async function saveTransactions() {
@@ -259,7 +287,7 @@ async function saveTransactions() {
     const res = await fetch('/api/transactions/save', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: currentFile, transactions: transactions })
+      body: JSON.stringify({ filename: currentFile, transactions })
     });
     if (res.status === 401) { logout(); return; }
     const data = await res.json();
@@ -275,16 +303,141 @@ async function saveTransactions() {
   }
 }
 
+// --- Analytics (monthly line chart) ---
+async function loadAnalytics() {
+  const emptyEl = document.getElementById('analytics-empty');
+  try {
+    const res = await fetch('/api/transactions/analytics', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (res.status === 401) { logout(); return; }
+    const data = await res.json();
+    analyticsData = data.data || [];
+
+    // Populate category dropdown (keep first two fixed options)
+    const sel = document.getElementById('category-filter');
+    const cats = [...new Set(analyticsData.map(r => r.category))].sort();
+    // Remove old dynamic options, keep __all__ and __total__
+    while (sel.options.length > 2) sel.remove(2);
+    cats.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c; opt.textContent = c;
+      sel.appendChild(opt);
+    });
+
+    if (!analyticsData.length) {
+      emptyEl.classList.remove('hidden');
+      if (lineChart) { lineChart.destroy(); lineChart = null; }
+    } else {
+      emptyEl.classList.add('hidden');
+      renderAnalyticsChart();
+    }
+  } catch (e) {
+    emptyEl.textContent = 'Could not load analytics: ' + e.message;
+    emptyEl.classList.remove('hidden');
+  }
+}
+
+function updateAnalyticsChart() { renderAnalyticsChart(); }
+
+function renderAnalyticsChart() {
+  if (!analyticsData.length) return;
+
+  const filter = document.getElementById('category-filter').value;
+  const months = [...new Set(analyticsData.map(r => r.month))].sort();
+  const monthLabels = months.map(m => {
+    const [y, mo] = m.split('-');
+    return new Date(+y, +mo - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  });
+
+  let datasets = [];
+
+  if (filter === '__all__') {
+    // Top 6 categories by total spend across all months
+    const catTotals = {};
+    analyticsData.forEach(r => { catTotals[r.category] = (catTotals[r.category] || 0) + r.total; });
+    const topCats = Object.entries(catTotals).sort((a, b) => b[1] - a[1]).slice(0, 6).map(e => e[0]);
+    datasets = topCats.map((cat, idx) => {
+      const byMonth = {};
+      analyticsData.filter(r => r.category === cat).forEach(r => { byMonth[r.month] = r.total; });
+      return {
+        label: cat,
+        data: months.map(m => +(byMonth[m] || 0).toFixed(2)),
+        borderColor: CHART_COLORS[idx],
+        backgroundColor: CHART_COLORS[idx] + '22',
+        tension: 0.35,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        fill: false
+      };
+    });
+  } else if (filter === '__total__') {
+    const totals = {};
+    analyticsData.forEach(r => { totals[r.month] = (totals[r.month] || 0) + r.total; });
+    datasets = [{
+      label: 'Total Spend',
+      data: months.map(m => +(totals[m] || 0).toFixed(2)),
+      borderColor: '#3b82f6',
+      backgroundColor: 'rgba(59,130,246,0.08)',
+      tension: 0.35,
+      pointRadius: 4,
+      pointHoverRadius: 6,
+      fill: true
+    }];
+  } else {
+    const byMonth = {};
+    analyticsData.filter(r => r.category === filter).forEach(r => { byMonth[r.month] = r.total; });
+    datasets = [{
+      label: filter,
+      data: months.map(m => +(byMonth[m] || 0).toFixed(2)),
+      borderColor: '#7c3aed',
+      backgroundColor: 'rgba(124,58,237,0.08)',
+      tension: 0.35,
+      pointRadius: 4,
+      pointHoverRadius: 6,
+      fill: true
+    }];
+  }
+
+  if (lineChart) lineChart.destroy();
+  lineChart = new Chart(document.getElementById('chart-line'), {
+    type: 'line',
+    data: { labels: monthLabels, datasets },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { font: { size: 11 }, padding: 12, boxWidth: 12 } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ' ' + ctx.dataset.label + ': $' + ctx.parsed.y.toLocaleString('en-US', { minimumFractionDigits: 2 })
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { callback: v => '$' + Number(v).toLocaleString() },
+          grid: { color: '#f1f5f9' }
+        },
+        x: { grid: { color: '#f1f5f9' } }
+      }
+    }
+  });
+}
+
 // --- Transaction History ---
 async function loadHistory() {
-  const loadingDiv   = document.getElementById('history-loading');
-  const emptyDiv     = document.getElementById('history-empty');
-  const tableWrap    = document.getElementById('history-table-wrap');
-  const tbody        = document.getElementById('history-body');
+  loadAnalytics();
+
+  const loadingDiv = document.getElementById('history-loading');
+  const emptyDiv   = document.getElementById('history-empty');
+  const tableWrap  = document.getElementById('history-table-wrap');
+  const tbody      = document.getElementById('history-body');
 
   loadingDiv.classList.remove('hidden');
   emptyDiv.classList.add('hidden');
-  tableWrap.classList.add('hidden');
+  tableWrap.style.display = 'none';
   closeBatchDetail();
 
   try {
@@ -301,9 +454,9 @@ async function loadHistory() {
     if (!batches.length) {
       emptyDiv.classList.remove('hidden');
     } else {
-      batches.forEach(function(b) {
-        const tr = document.createElement('tr');
-        const dt = new Date(b.created_at);
+      batches.forEach(b => {
+        const tr  = document.createElement('tr');
+        const dt  = new Date(b.created_at);
         const dateStr = dt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
         tr.innerHTML =
           '<td>' + dateStr + '</td>' +
@@ -311,12 +464,12 @@ async function loadHistory() {
           '<td style="text-align:center">' + b.transaction_count + '</td>' +
           '<td>' + esc(b.uploaded_by) + '</td>' +
           '<td class="history-actions">' +
-            '<button class="btn btn-sm btn-primary" onclick="viewBatch(' + b.id + ', \'' + esc(b.filename) + '\', \'' + dateStr + '\')">View</button>' +
-            '<button class="btn btn-sm btn-danger" onclick="deleteBatch(' + b.id + ', this)">Delete</button>' +
+            '<button class="btn btn-sm btn-primary" onclick="viewBatch(' + b.id + ',\'' + esc(b.filename) + '\',\'' + dateStr + '\')">View</button>' +
+            '<button class="btn btn-sm btn-danger" onclick="deleteBatch(' + b.id + ',this)">Delete</button>' +
           '</td>';
         tbody.appendChild(tr);
       });
-      tableWrap.classList.remove('hidden');
+      tableWrap.style.display = '';
     }
   } catch (err) {
     emptyDiv.textContent = 'Error loading history: ' + err.message;
@@ -346,13 +499,11 @@ async function deleteBatch(batchId, btnEl) {
 
 async function viewBatch(batchId, filename, dateStr) {
   activeBatchId = batchId;
-  const detail  = document.getElementById('history-batch-detail');
+  const detail     = document.getElementById('history-batch-detail');
   const detailBody = document.getElementById('batch-detail-body');
-  const title   = document.getElementById('batch-detail-title');
-  const sub     = document.getElementById('batch-detail-sub');
 
-  title.textContent = filename || 'Transactions';
-  sub.textContent   = 'Saved ' + dateStr;
+  document.getElementById('batch-detail-title').textContent = filename || 'Transactions';
+  document.getElementById('batch-detail-sub').textContent   = 'Saved ' + dateStr;
   detailBody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#64748b">Loading…</td></tr>';
   detail.classList.remove('hidden');
   detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -380,7 +531,7 @@ function closeBatchDetail() {
 function renderBatchDetail(txns) {
   const tbody = document.getElementById('batch-detail-body');
   tbody.innerHTML = '';
-  txns.forEach(function(txn) {
+  txns.forEach(txn => {
     const amt = parseFloat(txn.amount) || 0;
     const tr  = document.createElement('tr');
     tr.innerHTML =
@@ -388,9 +539,9 @@ function renderBatchDetail(txns) {
       '<td>' + esc(txn.post_date || '') + '</td>' +
       '<td class="desc" title="' + esc(txn.description || '') + '">' + esc(txn.description || '') + '</td>' +
       '<td class="amount' + (amt < 0 ? ' negative' : '') + '">$' + Math.abs(amt).toFixed(2) + '</td>' +
-      '<td><select class="category-select" onchange="patchTxnCategory(' + txn.id + ', this.value)">' + buildOptions(txn.category) + '</select></td>' +
+      '<td><select class="category-select" onchange="patchTxnCategory(' + txn.id + ',this.value)">' + buildOptions(txn.category) + '</select></td>' +
       '<td>' + esc(txn.cardholder || 'Primary') + '</td>' +
-      '<td><input class="notes-input" type="text" value="' + esc(txn.notes || '') + '" placeholder="Add note…" oninput="schedulePatchNotes(' + txn.id + ', this.value)" /></td>';
+      '<td><input class="notes-input" type="text" value="' + esc(txn.notes || '') + '" placeholder="Add note…" oninput="schedulePatchNotes(' + txn.id + ',this.value)" /></td>';
     tbody.appendChild(tr);
   });
 }
@@ -400,23 +551,23 @@ async function patchTxnCategory(txnId, category) {
     const res = await fetch('/api/transactions/' + txnId, {
       method: 'PATCH',
       headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category: category })
+      body: JSON.stringify({ category })
     });
-    if (res.status === 401) { logout(); return; }
-  } catch (e) { /* silent — UI already reflects the value */ }
+    if (res.status === 401) logout();
+  } catch (e) { /* silent */ }
 }
 
 var _noteTimers = {};
 function schedulePatchNotes(txnId, notes) {
   clearTimeout(_noteTimers[txnId]);
-  _noteTimers[txnId] = setTimeout(async function() {
+  _noteTimers[txnId] = setTimeout(async () => {
     try {
       const res = await fetch('/api/transactions/' + txnId, {
         method: 'PATCH',
         headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notes: notes })
+        body: JSON.stringify({ notes })
       });
-      if (res.status === 401) { logout(); return; }
+      if (res.status === 401) logout();
     } catch (e) { /* silent */ }
   }, 600);
 }
@@ -424,99 +575,104 @@ function schedulePatchNotes(txnId, notes) {
 function downloadBatchCSV() {
   if (!batchTxns.length) return;
   const headers = ['Sale Date', 'Post Date', 'Description', 'Amount', 'Category', 'Cardholder', 'Notes', 'Processed By'];
-  const rows = batchTxns.map(function(t) {
-    return [
-      t.sale_date, t.post_date, t.description, t.amount,
-      t.category, t.cardholder, t.notes, t.processed_by
-    ].map(function(v) { return '"' + String(v || '').replace(/"/g, '""') + '"'; }).join(',');
-  });
-  const blob = new Blob([[headers.join(',')].concat(rows).join('\n')], { type: 'text/csv' });
+  const rows = batchTxns.map(t =>
+    [t.sale_date, t.post_date, t.description, t.amount, t.category, t.cardholder, t.notes, t.processed_by]
+      .map(v => '"' + String(v || '').replace(/"/g, '""') + '"').join(',')
+  );
+  const name = (document.getElementById('batch-detail-title').textContent || 'transactions').replace('.pdf','') + '.csv';
+  triggerCSVDownload([headers.join(',')].concat(rows).join('\n'), name);
+}
+
+function triggerCSVDownload(csv, filename) {
+  const blob = new Blob([csv], { type: 'text/csv' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = (document.getElementById('batch-detail-title').textContent || 'transactions').replace('.pdf', '') + '.csv';
+  a.download = filename;
   document.body.appendChild(a); a.click(); a.remove();
+}
+
+// --- Helpers ---
+function showError(msg) { errorEl.textContent = msg; errorEl.classList.remove('hidden'); }
+function hideError()    { errorEl.classList.add('hidden'); }
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // --- Vendor Analysis ---
 let vendorChart = null;
 
-var VENDOR_MAP = [
-  [/amzn|amazon/i,                         'Amazon'],
-  [/upwork/i,                               'Upwork'],
-  [/godaddy/i,                              'GoDaddy'],
-  [/intuit|quickbooks|turbotax/i,           'Intuit / QuickBooks'],
-  [/at&t|att\.com/i,                        'AT&T'],
-  [/google/i,                               'Google'],
-  [/microsoft|msft/i,                       'Microsoft'],
-  [/apple\.com|apple store/i,               'Apple'],
-  [/dropbox/i,                              'Dropbox'],
-  [/zoom/i,                                 'Zoom'],
-  [/slack/i,                                'Slack'],
-  [/adobe/i,                                'Adobe'],
-  [/shopify/i,                              'Shopify'],
-  [/paypal/i,                               'PayPal'],
-  [/stripe/i,                               'Stripe'],
-  [/square/i,                               'Square'],
-  [/uber\s?eats|ubereats/i,                 'Uber Eats'],
-  [/\buber\b/i,                             'Uber'],
-  [/lyft/i,                                 'Lyft'],
-  [/doordash/i,                             'DoorDash'],
-  [/grubhub/i,                              'Grubhub'],
-  [/fedex/i,                                'FedEx'],
-  [/usps/i,                                 'USPS'],
-  [/\bups\b/i,                              'UPS'],
-  [/dhl/i,                                  'DHL'],
-  [/verizon/i,                              'Verizon'],
-  [/t-mobile|tmobile/i,                     'T-Mobile'],
-  [/comcast|xfinity/i,                      'Comcast / Xfinity'],
-  [/notion/i,                               'Notion'],
-  [/canva/i,                                'Canva'],
-  [/mailchimp/i,                            'Mailchimp'],
-  [/hubspot/i,                              'HubSpot'],
-  [/salesforce/i,                           'Salesforce'],
-  [/docusign/i,                             'DocuSign'],
-  [/propstream/i,                           'PropStream'],
-  [/costar/i,                               'CoStar'],
-  [/openai/i,                               'OpenAI'],
-  [/chatgpt/i,                              'ChatGPT'],
+const VENDOR_MAP = [
+  [/amzn|amazon/i,                        'Amazon'],
+  [/upwork/i,                              'Upwork'],
+  [/godaddy/i,                             'GoDaddy'],
+  [/intuit|quickbooks|turbotax/i,          'Intuit / QuickBooks'],
+  [/at&t|att\.com/i,                       'AT&T'],
+  [/google/i,                              'Google'],
+  [/microsoft|msft/i,                      'Microsoft'],
+  [/apple\.com|apple store/i,              'Apple'],
+  [/dropbox/i,                             'Dropbox'],
+  [/zoom/i,                                'Zoom'],
+  [/slack/i,                               'Slack'],
+  [/adobe/i,                               'Adobe'],
+  [/shopify/i,                             'Shopify'],
+  [/paypal/i,                              'PayPal'],
+  [/stripe/i,                              'Stripe'],
+  [/square/i,                              'Square'],
+  [/uber\s?eats|ubereats/i,                'Uber Eats'],
+  [/\buber\b/i,                            'Uber'],
+  [/lyft/i,                                'Lyft'],
+  [/doordash/i,                            'DoorDash'],
+  [/grubhub/i,                             'Grubhub'],
+  [/fedex/i,                               'FedEx'],
+  [/usps/i,                                'USPS'],
+  [/\bups\b/i,                             'UPS'],
+  [/dhl/i,                                 'DHL'],
+  [/verizon/i,                             'Verizon'],
+  [/t-mobile|tmobile/i,                    'T-Mobile'],
+  [/comcast|xfinity/i,                     'Comcast / Xfinity'],
+  [/notion/i,                              'Notion'],
+  [/canva/i,                               'Canva'],
+  [/mailchimp/i,                           'Mailchimp'],
+  [/hubspot/i,                             'HubSpot'],
+  [/salesforce/i,                          'Salesforce'],
+  [/docusign/i,                            'DocuSign'],
+  [/propstream/i,                          'PropStream'],
+  [/costar/i,                              'CoStar'],
+  [/openai/i,                              'OpenAI'],
+  [/chatgpt/i,                             'ChatGPT'],
 ];
 
 function normalizeVendor(desc) {
-  var s = (desc || '').trim();
-  for (var i = 0; i < VENDOR_MAP.length; i++) {
-    if (VENDOR_MAP[i][0].test(s)) return VENDOR_MAP[i][1];
-  }
+  let s = (desc || '').trim();
+  for (const [re, name] of VENDOR_MAP) { if (re.test(s)) return name; }
   s = s.replace(/\*.*$/, '').trim();
   s = s.replace(/[\s-]?\d[\d\s-]{6,}\d/g, '').trim();
   s = s.replace(/\s+[A-Z]{2}$/, '').trim();
   s = s.replace(/https?:\/\/\S+/gi, '').trim();
   s = s.replace(/\w+\.(com|net|org|io|co)\b/gi, '').trim();
-  var words = s.split(/\s+/).filter(Boolean).slice(0, 3);
-  s = words.join(' ');
-  return s || 'Unknown';
+  return s.split(/\s+/).filter(Boolean).slice(0, 3).join(' ') || 'Unknown';
 }
 
 function renderVendorAnalysis() {
-  var vendorMap = {};
-  transactions.forEach(function(t) {
-    var amt = parseFloat(t.Amount) || 0;
+  const vendorMap = {};
+  transactions.forEach(t => {
+    const amt = parseFloat(t.Amount) || 0;
     if (amt <= 0) return;
-    var vendor = normalizeVendor(t.Description);
+    const vendor = normalizeVendor(t.Description);
     if (!vendorMap[vendor]) vendorMap[vendor] = { count: 0, total: 0 };
-    vendorMap[vendor].count += 1;
+    vendorMap[vendor].count++;
     vendorMap[vendor].total += amt;
   });
 
-  var sorted = Object.entries(vendorMap)
-    .map(function(e) { return { vendor: e[0], count: e[1].count, total: e[1].total, avg: e[1].total / e[1].count }; })
-    .sort(function(a, b) { return b.total - a.total; });
+  const sorted = Object.entries(vendorMap)
+    .map(([vendor, v]) => ({ vendor, count: v.count, total: v.total, avg: v.total / v.count }))
+    .sort((a, b) => b.total - a.total);
 
-  var fmt = function(v) { return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
-
-  var tbody = document.getElementById('vendor-body');
+  const fmt = v => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const tbody = document.getElementById('vendor-body');
   tbody.innerHTML = '';
-  sorted.forEach(function(row) {
-    var tr = document.createElement('tr');
+  sorted.forEach(row => {
+    const tr = document.createElement('tr');
     tr.innerHTML =
       '<td class="desc">' + esc(row.vendor) + '</td>' +
       '<td style="text-align:center">' + row.count + '</td>' +
@@ -525,24 +681,23 @@ function renderVendorAnalysis() {
     tbody.appendChild(tr);
   });
 
-  var top = sorted.slice(0, 10);
+  const top = sorted.slice(0, 10);
   if (vendorChart) vendorChart.destroy();
   vendorChart = new Chart(document.getElementById('chart-vendor'), {
     type: 'bar',
     data: {
-      labels: top.map(function(r) { return r.vendor.length > 30 ? r.vendor.slice(0, 28) + '…' : r.vendor; }),
+      labels: top.map(r => r.vendor.length > 30 ? r.vendor.slice(0, 28) + '…' : r.vendor),
       datasets: [{
         label: 'Total Spend ($)',
-        data: top.map(function(r) { return +r.total.toFixed(2); }),
+        data: top.map(r => +r.total.toFixed(2)),
         backgroundColor: CHART_COLORS.slice(0, top.length),
         borderRadius: 4
       }]
     },
     options: {
-      indexAxis: 'y',
-      responsive: true,
+      indexAxis: 'y', responsive: true,
       plugins: { legend: { display: false } },
-      scales: { x: { ticks: { callback: function(v) { return '$' + Number(v).toLocaleString(); } } } }
+      scales: { x: { ticks: { callback: v => '$' + Number(v).toLocaleString() } } }
     }
   });
 }
