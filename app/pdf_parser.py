@@ -78,6 +78,7 @@ def parse_pdf_text(uploaded_file):
 def extract_transactions_from_text(lines):
     transactions = []
     current_cardholder = "Primary"
+    confirmed_cardholders = set()  # names already confirmed via "Standard Purchases"
     i = 0
 
     while i < len(lines) - 2:
@@ -89,21 +90,34 @@ def extract_transactions_from_text(lines):
         # Citi PDFs use a two-column layout; PyMuPDF interleaves right-column
         # blocks (AAdvantage miles section) between the section name header and
         # "Standard Purchases", so they are not always adjacent lines.
-        # Strategy: look ahead up to 10 lines for the exact text
-        # "Standard Purchases" (stops at the first MM/DD date so we don't
-        # accidentally match the CARDHOLDER SUMMARY table, and requires an
-        # exact match so "Standard Purchases, Cont'd" on page 3 is ignored).
+        # On page continuations the header reads "Standard Purchases, Cont'd"
+        # and the name may reappear without any "Standard Purchases" line at all.
         if _is_cardholder_line(line_1):
+            name_title = line_1.strip().title()
+
+            # If we've already confirmed this name once, accept it again without
+            # requiring a "Standard Purchases" line (handles page continuations).
+            if name_title in confirmed_cardholders:
+                current_cardholder = name_title
+                i += 1
+                continue
+
+            # First occurrence: require "Standard Purchases" (exact or continuation
+            # variant) within the next 10 lines to avoid false-positives in the
+            # CARDHOLDER SUMMARY table. Stop early on a transaction date.
             found_at = -1
             for j in range(i + 1, min(i + 11, len(lines))):
                 s = lines[j].strip()
-                if re.match(r'^standard purchases\s*$', s, re.IGNORECASE):
+                # Matches "Standard Purchases", "Standard Purchases, Cont'd", etc.
+                # Does NOT match "Standard Purchases  $1,234.56" (has $ after space).
+                if re.match(r'^standard purchases(\s*$|,|\s+cont)', s, re.IGNORECASE):
                     found_at = j
                     break
                 if re.match(r'^\d{2}/\d{2}', s):
                     break  # hit a transaction date — stop searching
             if found_at >= 0:
-                current_cardholder = line_1.strip().title()
+                current_cardholder = name_title
+                confirmed_cardholders.add(name_title)
                 i = found_at + 1
                 continue
 

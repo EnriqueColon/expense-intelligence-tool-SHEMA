@@ -7,3 +7,4 @@ joblib
 aiofiles
 python-jose[cryptography]
 requests
+psycopg2-binary

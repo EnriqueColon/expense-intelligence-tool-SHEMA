@@ -2,13 +2,17 @@ import sys
 import os
 import io
 import requests as http_requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from typing import Optional
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)
 
 import joblib
 import pandas as pd
+import psycopg2
+import psycopg2.extras
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -25,17 +29,76 @@ from sklearn.impute import SimpleImputer
 from app.pdf_parser import parse_pdf_text, extract_transactions_from_text
 
 # --- Config ---
-SECRET_KEY   = os.environ.get("SECRET_KEY", "shema-intelligence-secret-2025")
-APP_USERNAME = os.environ.get("APP_USERNAME", "admin")
-APP_PASSWORD = os.environ.get("APP_PASSWORD", "shema2025")
-BLOB_TOKEN   = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
-ALGORITHM    = "HS256"
-TOKEN_HOURS  = 8
+SECRET_KEY    = os.environ.get("SECRET_KEY", "shema-intelligence-secret-2025")
+APP_USERNAME  = os.environ.get("APP_USERNAME", "admin")
+APP_PASSWORD  = os.environ.get("APP_PASSWORD", "shema2025")
+BLOB_TOKEN    = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
+DATABASE_URL  = os.environ.get("POSTGRES_URL", "")
+ALGORITHM     = "HS256"
+TOKEN_HOURS   = 8
 
 # --- App ---
 app = FastAPI(title="SHEMA Expense Intelligence Tool")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
+
+# --- Database ---
+def get_db():
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="Database not configured. Set the DATABASE_URL environment variable.")
+    return psycopg2.connect(DATABASE_URL)
+
+def _serialize(row: dict) -> dict:
+    out = {}
+    for k, v in row.items():
+        if isinstance(v, Decimal):
+            out[k] = float(v)
+        elif hasattr(v, 'isoformat'):
+            out[k] = v.isoformat()
+        else:
+            out[k] = v
+    return out
+
+def init_db():
+    if not DATABASE_URL:
+        print("[DB] DATABASE_URL not set — skipping table init")
+        return
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS transaction_batches (
+                id               SERIAL PRIMARY KEY,
+                uploaded_by      VARCHAR(255) NOT NULL,
+                filename         VARCHAR(255) DEFAULT '',
+                created_at       TIMESTAMPTZ  DEFAULT NOW(),
+                transaction_count INTEGER     DEFAULT 0
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS transactions (
+                id           SERIAL PRIMARY KEY,
+                batch_id     INTEGER REFERENCES transaction_batches(id) ON DELETE CASCADE,
+                sale_date    VARCHAR(10)   DEFAULT '',
+                post_date    VARCHAR(10)   DEFAULT '',
+                description  TEXT          DEFAULT '',
+                amount       NUMERIC(12,2) DEFAULT 0,
+                category     VARCHAR(100)  DEFAULT 'Unclassified',
+                cardholder   VARCHAR(255)  DEFAULT 'Primary',
+                processed_by VARCHAR(255)  DEFAULT '',
+                notes        TEXT          DEFAULT '',
+                created_at   TIMESTAMPTZ   DEFAULT NOW(),
+                updated_at   TIMESTAMPTZ   DEFAULT NOW()
+            )
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("[DB] Tables ready")
+    except Exception as e:
+        print(f"[DB] Init failed: {e}")
+
+init_db()
 
 # --- Blob Storage helpers ---
 BLOB_FILENAME = "expense_classifier.pkl"
@@ -104,6 +167,14 @@ class LoginRequest(BaseModel):
 class RetrainRequest(BaseModel):
     transactions: list
 
+class SaveTransactionsRequest(BaseModel):
+    filename: str = ""
+    transactions: list
+
+class UpdateTransactionRequest(BaseModel):
+    category: Optional[str] = None
+    notes: Optional[str] = None
+
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
     try:
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
@@ -128,7 +199,7 @@ def login(body: LoginRequest):
     if body.username != APP_USERNAME or body.password != APP_PASSWORD:
         raise HTTPException(status_code=401, detail="Invalid username or password")
     token = jwt.encode(
-        {"sub": body.username, "exp": datetime.utcnow() + timedelta(hours=TOKEN_HOURS)},
+        {"sub": body.username, "exp": datetime.now(timezone.utc) + timedelta(hours=TOKEN_HOURS)},
         SECRET_KEY, algorithm=ALGORITHM
     )
     return {"token": token, "username": body.username}
@@ -196,6 +267,123 @@ async def retrain_model(body: RetrainRequest, username: str = Depends(verify_tok
         "persisted": saved
     }
 
+# --- Transaction persistence ---
+
+@app.post("/api/transactions/save")
+def save_transactions(body: SaveTransactionsRequest, username: str = Depends(verify_token)):
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO transaction_batches (uploaded_by, filename, transaction_count) VALUES (%s, %s, %s) RETURNING id",
+            (username, body.filename, len(body.transactions))
+        )
+        batch_id = cur.fetchone()[0]
+        for txn in body.transactions:
+            cur.execute(
+                """INSERT INTO transactions
+                   (batch_id, sale_date, post_date, description, amount, category, cardholder, processed_by)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                (
+                    batch_id,
+                    str(txn.get("Sale Date", "")),
+                    str(txn.get("Post Date", "")),
+                    str(txn.get("Description", "")),
+                    float(txn.get("Amount", 0) or 0),
+                    str(txn.get("Category", "Unclassified")),
+                    str(txn.get("Cardholder", "Primary")),
+                    str(txn.get("Processed By", username)),
+                )
+            )
+        conn.commit()
+        return {"success": True, "batch_id": batch_id, "count": len(body.transactions)}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.get("/api/transactions/history")
+def get_history(username: str = Depends(verify_token)):
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            "SELECT id, uploaded_by, filename, created_at, transaction_count FROM transaction_batches ORDER BY created_at DESC LIMIT 100"
+        )
+        rows = [_serialize(dict(r)) for r in cur.fetchall()]
+        return {"batches": rows}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.get("/api/transactions/batch/{batch_id}")
+def get_batch(batch_id: int, username: str = Depends(verify_token)):
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            """SELECT id, sale_date, post_date, description, amount, category,
+                      cardholder, processed_by, notes, created_at, updated_at
+               FROM transactions WHERE batch_id = %s ORDER BY id""",
+            (batch_id,)
+        )
+        rows = [_serialize(dict(r)) for r in cur.fetchall()]
+        return {"transactions": rows}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.patch("/api/transactions/{transaction_id}")
+def update_transaction(
+    transaction_id: int,
+    body: UpdateTransactionRequest,
+    username: str = Depends(verify_token)
+):
+    fields, values = [], []
+    if body.category is not None:
+        fields.append("category = %s")
+        values.append(body.category)
+    if body.notes is not None:
+        fields.append("notes = %s")
+        values.append(body.notes)
+    if not fields:
+        raise HTTPException(status_code=400, detail="Nothing to update.")
+    fields.append("updated_at = NOW()")
+    values.append(transaction_id)
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute(f"UPDATE transactions SET {', '.join(fields)} WHERE id = %s", values)
+        conn.commit()
+        return {"success": True}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.delete("/api/transactions/batch/{batch_id}")
+def delete_batch(batch_id: int, username: str = Depends(verify_token)):
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM transaction_batches WHERE id = %s", (batch_id,))
+        conn.commit()
+        return {"success": True}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "model_loaded": pipeline is not None, "blob_configured": bool(BLOB_TOKEN)}
+    return {
+        "status": "ok",
+        "model_loaded": pipeline is not None,
+        "blob_configured": bool(BLOB_TOKEN),
+        "db_configured": bool(DATABASE_URL)
+    }

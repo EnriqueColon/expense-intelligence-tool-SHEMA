@@ -205,3 +205,76 @@ select.category-select:focus { outline: none; border-color: #3b82f6; }
 .vendor-sub { font-size: 0.8rem; color: #64748b; }
 #vendor-table thead th { background: #f8fafc; }
 #vendor-table td { padding: 0.6rem 1rem; }
+
+/* Tab navigation */
+.view-tabs {
+  background: white;
+  border-bottom: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.tabs-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+  display: flex;
+  gap: 0;
+}
+.tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  padding: 0.875rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+.tab-btn:hover { color: #1a202c; }
+.tab-btn.active { color: #3b82f6; border-bottom-color: #3b82f6; }
+
+/* Table actions group */
+.table-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+
+/* Save button */
+.btn-save { background: #7c3aed; color: white; }
+.btn-save:hover:not(:disabled) { background: #6d28d9; }
+.btn-save:disabled { opacity: 0.65; cursor: not-allowed; }
+
+/* Save status banner */
+.save-status {
+  font-size: 0.82rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 5px;
+  font-weight: 500;
+}
+.save-status-loading { background: #f0f9ff; color: #0369a1; border: 1px solid #bae6fd; }
+.save-status-ok      { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+.save-status-err     { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+
+/* History */
+.history-actions { display: flex; gap: 0.4rem; justify-content: flex-end; }
+.btn-sm { padding: 0.3rem 0.7rem; font-size: 0.78rem; }
+.btn-danger { background: #ef4444; color: white; }
+.btn-danger:hover:not(:disabled) { background: #dc2626; }
+.btn-danger:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-ghost {
+  background: transparent;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+}
+.btn-ghost:hover { background: #f1f5f9; }
+
+/* Notes input in history table */
+.notes-input {
+  width: 100%;
+  min-width: 140px;
+  padding: 0.28rem 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  font-size: 0.8rem;
+  color: #374151;
+  background: #f8fafc;
+}
+.notes-input:focus { outline: none; border-color: #7c3aed; background: white; }

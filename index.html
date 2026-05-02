@@ -25,110 +25,193 @@
     </div>
   </header>
 
+  <!-- Tab navigation -->
+  <div class="view-tabs">
+    <div class="tabs-inner">
+      <button class="tab-btn active" id="tab-upload" onclick="switchTab('upload')">Upload</button>
+      <button class="tab-btn" id="tab-history" onclick="switchTab('history')">Transaction History</button>
+    </div>
+  </div>
+
   <main>
 
-    <!-- Upload -->
-    <div class="card" id="upload-card">
-      <div class="card-body">
-        <div class="drop-zone" id="drop-zone">
-          <div class="drop-icon">&#8679;</div>
-          <h3>Drop your credit card PDF here</h3>
-          <p>or click to browse files</p>
-          <input type="file" id="file-input" accept=".pdf" hidden />
+    <!-- ===== UPLOAD VIEW ===== -->
+    <div id="view-upload">
+
+      <!-- Upload -->
+      <div class="card" id="upload-card">
+        <div class="card-body">
+          <div class="drop-zone" id="drop-zone">
+            <div class="drop-icon">&#8679;</div>
+            <h3>Drop your credit card PDF here</h3>
+            <p>or click to browse files</p>
+            <input type="file" id="file-input" accept=".pdf" hidden />
+          </div>
+          <div class="loading hidden" id="loading">
+            <div class="spinner"></div>
+            <p>Parsing and classifying transactions&hellip;</p>
+          </div>
+          <div class="error-msg hidden" id="error"></div>
         </div>
-        <div class="loading hidden" id="loading">
-          <div class="spinner"></div>
-          <p>Parsing and classifying transactions&hellip;</p>
+      </div>
+
+      <!-- Results -->
+      <div id="results" class="hidden">
+
+        <!-- Stats -->
+        <div class="stats-grid" id="stats-grid"></div>
+
+        <!-- Charts -->
+        <div class="charts-grid">
+          <div class="card chart-card">
+            <div class="card-body">
+              <h3 class="chart-title">Spend by Category</h3>
+              <canvas id="chart-donut"></canvas>
+            </div>
+          </div>
+          <div class="card chart-card">
+            <div class="card-body">
+              <h3 class="chart-title">Top Categories by Amount</h3>
+              <canvas id="chart-bar"></canvas>
+            </div>
+          </div>
         </div>
-        <div class="error-msg hidden" id="error"></div>
+
+        <!-- Transactions Table -->
+        <div class="card">
+          <div class="table-header">
+            <h2>Transactions</h2>
+            <div class="table-actions">
+              <div id="save-status" class="save-status hidden"></div>
+              <button class="btn btn-save" id="save-btn" onclick="saveTransactions()">&#8659; Save to Database</button>
+              <button class="btn btn-primary" onclick="downloadCSV()">&#8595; Download CSV</button>
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Sale Date</th>
+                  <th>Post Date</th>
+                  <th>Description</th>
+                  <th>Amount</th>
+                  <th>Category</th>
+                  <th>Cardholder</th>
+                </tr>
+              </thead>
+              <tbody id="table-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Vendor Analysis -->
+        <div class="card">
+          <div class="table-header">
+            <h2>Vendor Analysis</h2>
+            <span class="vendor-sub">Top vendors by total spend</span>
+          </div>
+          <div class="charts-grid vendor-charts">
+            <div class="card-body">
+              <h3 class="chart-title">Top 10 Vendors</h3>
+              <canvas id="chart-vendor"></canvas>
+            </div>
+            <div class="table-wrapper">
+              <table id="vendor-table">
+                <thead>
+                  <tr>
+                    <th>Vendor</th>
+                    <th>Transactions</th>
+                    <th>Total Spend</th>
+                    <th>Avg. Transaction</th>
+                  </tr>
+                </thead>
+                <tbody id="vendor-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Retrain -->
+        <div class="card retrain-card">
+          <div class="table-header">
+            <div>
+              <h2>Retrain Model</h2>
+              <p class="retrain-hint">Correct the categories in the table above, then click Retrain to improve future classifications.</p>
+            </div>
+            <button class="btn btn-retrain" id="retrain-btn" onclick="retrainModel()">&#8635; Retrain Model</button>
+          </div>
+          <div class="retrain-result hidden" id="retrain-result"></div>
+        </div>
+
       </div>
     </div>
 
-    <!-- Results -->
-    <div id="results" class="hidden">
+    <!-- ===== HISTORY VIEW ===== -->
+    <div id="view-history" class="hidden">
 
-      <!-- Stats -->
-      <div class="stats-grid" id="stats-grid"></div>
-
-      <!-- Charts -->
-      <div class="charts-grid">
-        <div class="card chart-card">
-          <div class="card-body">
-            <h3 class="chart-title">Spend by Category</h3>
-            <canvas id="chart-donut"></canvas>
-          </div>
-        </div>
-        <div class="card chart-card">
-          <div class="card-body">
-            <h3 class="chart-title">Top Categories by Amount</h3>
-            <canvas id="chart-bar"></canvas>
-          </div>
-        </div>
-      </div>
-
-      <!-- Transactions Table -->
+      <!-- Batch list -->
       <div class="card">
         <div class="table-header">
-          <h2>Transactions</h2>
-          <button class="btn btn-primary" onclick="downloadCSV()">&#8595; Download CSV</button>
+          <h2>Saved Transaction Batches</h2>
+          <button class="btn btn-primary" onclick="loadHistory()">&#8635; Refresh</button>
         </div>
-        <div class="table-wrapper">
-          <table>
+        <div id="history-loading" class="hidden" style="padding:2rem;text-align:center">
+          <div class="spinner" style="margin:0 auto 0.75rem"></div>
+          <p style="color:#64748b;font-size:0.9rem">Loading history&hellip;</p>
+        </div>
+        <div id="history-empty" class="hidden" style="padding:2rem 1.5rem;color:#64748b;font-size:0.9rem">
+          No saved batches yet. Upload a PDF and click <strong>Save to Database</strong>.
+        </div>
+        <div class="table-wrapper" id="history-table-wrap">
+          <table id="history-table">
             <thead>
               <tr>
-                <th>Sale Date</th>
-                <th>Post Date</th>
-                <th>Description</th>
-                <th>Amount</th>
-                <th>Category</th>
-                <th>Cardholder</th>
+                <th>Date Saved</th>
+                <th>Filename</th>
+                <th>Transactions</th>
+                <th>Uploaded By</th>
+                <th></th>
               </tr>
             </thead>
-            <tbody id="table-body"></tbody>
+            <tbody id="history-body"></tbody>
           </table>
         </div>
       </div>
 
-      <!-- Vendor Analysis -->
-      <div class="card">
-        <div class="table-header">
-          <h2>Vendor Analysis</h2>
-          <span class="vendor-sub">Top vendors by total spend</span>
-        </div>
-        <div class="charts-grid vendor-charts">
-          <div class="card-body">
-            <h3 class="chart-title">Top 10 Vendors</h3>
-            <canvas id="chart-vendor"></canvas>
+      <!-- Expanded batch transactions -->
+      <div id="history-batch-detail" class="hidden">
+        <div class="card">
+          <div class="table-header">
+            <div>
+              <h2 id="batch-detail-title">Transactions</h2>
+              <p class="retrain-hint" id="batch-detail-sub"></p>
+            </div>
+            <div class="table-actions">
+              <button class="btn btn-primary" onclick="downloadBatchCSV()">&#8595; Download CSV</button>
+              <button class="btn btn-ghost" onclick="closeBatchDetail()">&#10005; Close</button>
+            </div>
           </div>
           <div class="table-wrapper">
-            <table id="vendor-table">
+            <table>
               <thead>
                 <tr>
-                  <th>Vendor</th>
-                  <th>Transactions</th>
-                  <th>Total Spend</th>
-                  <th>Avg. Transaction</th>
+                  <th>Sale Date</th>
+                  <th>Post Date</th>
+                  <th>Description</th>
+                  <th>Amount</th>
+                  <th>Category</th>
+                  <th>Cardholder</th>
+                  <th>Notes</th>
                 </tr>
               </thead>
-              <tbody id="vendor-body"></tbody>
+              <tbody id="batch-detail-body"></tbody>
             </table>
           </div>
         </div>
       </div>
 
-      <!-- Retrain -->
-      <div class="card retrain-card">
-        <div class="table-header">
-          <div>
-            <h2>Retrain Model</h2>
-            <p class="retrain-hint">Correct the categories in the table above, then click Retrain to improve future classifications.</p>
-          </div>
-          <button class="btn btn-retrain" id="retrain-btn" onclick="retrainModel()">&#8635; Retrain Model</button>
-        </div>
-        <div class="retrain-result hidden" id="retrain-result"></div>
-      </div>
-
     </div>
+
   </main>
 
   <script src="/static/app.js"></script>
