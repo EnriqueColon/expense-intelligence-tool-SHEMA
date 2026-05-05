@@ -124,8 +124,17 @@ def extract_transactions_from_text(lines):
     sections = _prescan_cardholders(lines)
     confirmed_cardholders = {name for _, name in sections}
 
-    # Default: first confirmed name, or "Primary" if the doc has no names at all.
-    default_cardholder = sections[0][1] if sections else "Primary"
+    # Default cardholder for transactions that appear BEFORE the first checkpoint.
+    #
+    # In Citi's two-column layout PyMuPDF extracts the left column (transactions)
+    # before the right column (cardholder summary).  That means the section
+    # confirmation for the first cardholder's transactions lands AFTER those
+    # transactions in the extracted text stream.
+    #
+    # The cardholder summary always lists the "next-page" cardholder first and
+    # the "same-page" (pre-summary) cardholder last.  So sections[-1] is the
+    # cardholder whose transactions appear before all checkpoints.
+    default_cardholder = sections[-1][1] if sections else "Primary"
     current_cardholder = default_cardholder
 
     # Checkpoint pointer — advance through sections as we walk the lines.
