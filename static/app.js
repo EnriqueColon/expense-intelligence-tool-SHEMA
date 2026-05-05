@@ -713,6 +713,20 @@ function closeBatchDetail() {
 }
 
 function renderBatchDetail(txns) {
+  // Cardholder rename bar
+  const names = [...new Set(txns.map(t => t.cardholder || 'Primary'))].sort();
+  const renameEl = document.getElementById('batch-ch-rename');
+  renameEl.style.display = names.length ? '' : 'none';
+  renameEl.innerHTML = names.map(name =>
+    '<div class="ch-row">' +
+      '<span class="ch-badge">' + esc(name) + '</span>' +
+      '<span class="ch-arrow">&#8594;</span>' +
+      '<input class="ch-input" type="text" placeholder="Rename to…" data-old="' + esc(name) + '" />' +
+      '<button class="btn btn-sm btn-primary ch-apply" onclick="renameSavedCardholder(this)">Apply</button>' +
+    '</div>'
+  ).join('');
+
+  // Transaction rows
   const tbody = document.getElementById('batch-detail-body');
   tbody.innerHTML = '';
   txns.forEach(txn => {
@@ -728,6 +742,33 @@ function renderBatchDetail(txns) {
       '<td><input class="notes-input" type="text" value="' + esc(txn.notes || '') + '" placeholder="Add note…" oninput="schedulePatchNotes(' + txn.id + ',this.value)" /></td>';
     tbody.appendChild(tr);
   });
+}
+
+async function renameSavedCardholder(btnEl) {
+  const input   = btnEl.previousElementSibling;
+  const oldName = input.dataset.old;
+  const newName = input.value.trim();
+  if (!newName || newName === oldName) return;
+
+  btnEl.disabled = true;
+  btnEl.textContent = 'Saving…';
+  try {
+    const res = await fetch('/api/transactions/batch/' + activeBatchId + '/rename-cardholder', {
+      method: 'PATCH',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ old_name: oldName, new_name: newName })
+    });
+    if (res.status === 401) { logout(); return; }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Rename failed');
+    // Update in-memory records and re-render
+    batchTxns.forEach(t => { if ((t.cardholder || 'Primary') === oldName) t.cardholder = newName; });
+    renderBatchDetail(batchTxns);
+  } catch (e) {
+    alert('Rename failed: ' + e.message);
+    btnEl.disabled = false;
+    btnEl.textContent = 'Apply';
+  }
 }
 
 async function patchTxnCategory(txnId, category) {

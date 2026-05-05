@@ -175,6 +175,10 @@ class UpdateTransactionRequest(BaseModel):
     category: Optional[str] = None
     notes: Optional[str] = None
 
+class RenameCardholderRequest(BaseModel):
+    old_name: str
+    new_name: str
+
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
     try:
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
@@ -359,6 +363,28 @@ def update_transaction(
         cur.execute(f"UPDATE transactions SET {', '.join(fields)} WHERE id = %s", values)
         conn.commit()
         return {"success": True}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.patch("/api/transactions/batch/{batch_id}/rename-cardholder")
+def rename_cardholder_in_batch(
+    batch_id: int,
+    body: RenameCardholderRequest,
+    username: str = Depends(verify_token)
+):
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE transactions SET cardholder = %s, updated_at = NOW() WHERE batch_id = %s AND cardholder = %s",
+            (body.new_name, batch_id, body.old_name)
+        )
+        count = cur.rowcount
+        conn.commit()
+        return {"success": True, "updated": count}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
