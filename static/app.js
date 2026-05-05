@@ -146,7 +146,6 @@ function renderStats() {
     '<div class="stat-card"><div class="stat-label">Total Transactions</div><div class="stat-value">' + transactions.length + '</div></div>' +
     '<div class="stat-card amber"><div class="stat-label">Total Charges</div><div class="stat-value">' + fmt(charges) + '</div></div>' +
     '<div class="stat-card green"><div class="stat-label">Total Credits / Payments</div><div class="stat-value">' + fmt(credits) + '</div></div>' +
-    '<div class="stat-card red"><div class="stat-label">Net Spend</div><div class="stat-value">' + fmt(charges - credits) + '</div></div>' +
     '<div class="stat-card"><div class="stat-label">Uploaded By</div><div class="stat-value" style="font-size:1.1rem">' + (username || '-') + '</div></div>';
 }
 
@@ -317,13 +316,21 @@ async function loadAnalytics() {
     // Populate category dropdown (keep first two fixed options)
     const sel = document.getElementById('category-filter');
     const cats = [...new Set(analyticsData.map(r => r.category))].sort();
-    // Remove old dynamic options, keep __all__ and __total__
     while (sel.options.length > 2) sel.remove(2);
     cats.forEach(c => {
       const opt = document.createElement('option');
       opt.value = c; opt.textContent = c;
       sel.appendChild(opt);
     });
+
+    // Auto-initialize date range to cover all available data
+    if (analyticsData.length) {
+      const allMonths = [...new Set(analyticsData.map(r => r.month))].sort();
+      const fromEl = document.getElementById('date-from');
+      const toEl   = document.getElementById('date-to');
+      if (!fromEl.value) fromEl.value = allMonths[0];
+      if (!toEl.value)   toEl.value   = allMonths[allMonths.length - 1];
+    }
 
     if (!analyticsData.length) {
       emptyEl.classList.remove('hidden');
@@ -343,8 +350,17 @@ function updateAnalyticsChart() { renderAnalyticsChart(); }
 function renderAnalyticsChart() {
   if (!analyticsData.length) return;
 
-  const filter = document.getElementById('category-filter').value;
-  const months = [...new Set(analyticsData.map(r => r.month))].sort();
+  const filter  = document.getElementById('category-filter').value;
+  const fromVal = document.getElementById('date-from').value; // YYYY-MM or ''
+  const toVal   = document.getElementById('date-to').value;   // YYYY-MM or ''
+
+  const filtered = analyticsData.filter(r => {
+    if (fromVal && r.month < fromVal) return false;
+    if (toVal   && r.month > toVal)   return false;
+    return true;
+  });
+
+  const months = [...new Set(filtered.map(r => r.month))].sort();
   const monthLabels = months.map(m => {
     const [y, mo] = m.split('-');
     return new Date(+y, +mo - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
@@ -353,13 +369,12 @@ function renderAnalyticsChart() {
   let datasets = [];
 
   if (filter === '__all__') {
-    // Top 6 categories by total spend across all months
     const catTotals = {};
-    analyticsData.forEach(r => { catTotals[r.category] = (catTotals[r.category] || 0) + r.total; });
+    filtered.forEach(r => { catTotals[r.category] = (catTotals[r.category] || 0) + r.total; });
     const topCats = Object.entries(catTotals).sort((a, b) => b[1] - a[1]).slice(0, 6).map(e => e[0]);
     datasets = topCats.map((cat, idx) => {
       const byMonth = {};
-      analyticsData.filter(r => r.category === cat).forEach(r => { byMonth[r.month] = r.total; });
+      filtered.filter(r => r.category === cat).forEach(r => { byMonth[r.month] = r.total; });
       return {
         label: cat,
         data: months.map(m => +(byMonth[m] || 0).toFixed(2)),
@@ -373,7 +388,7 @@ function renderAnalyticsChart() {
     });
   } else if (filter === '__total__') {
     const totals = {};
-    analyticsData.forEach(r => { totals[r.month] = (totals[r.month] || 0) + r.total; });
+    filtered.forEach(r => { totals[r.month] = (totals[r.month] || 0) + r.total; });
     datasets = [{
       label: 'Total Spend',
       data: months.map(m => +(totals[m] || 0).toFixed(2)),
@@ -386,7 +401,7 @@ function renderAnalyticsChart() {
     }];
   } else {
     const byMonth = {};
-    analyticsData.filter(r => r.category === filter).forEach(r => { byMonth[r.month] = r.total; });
+    filtered.filter(r => r.category === filter).forEach(r => { byMonth[r.month] = r.total; });
     datasets = [{
       label: filter,
       data: months.map(m => +(byMonth[m] || 0).toFixed(2)),

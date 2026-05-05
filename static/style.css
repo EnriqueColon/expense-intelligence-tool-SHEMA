@@ -313,3 +313,15 @@ select.category-select:focus { outline: none; border-color: #3b82f6; }
   color: #64748b;
   font-weight: 500;
 }
+
+/* Month range picker */
+.month-input {
+  padding: 0.3rem 0.55rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  background: #f8fafc;
+  font-size: 0.82rem;
+  color: #374151;
+  cursor: pointer;
+}
+.month-input:focus { outline: none; border-color: #3b82f6; }

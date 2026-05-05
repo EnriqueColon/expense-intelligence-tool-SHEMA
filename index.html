@@ -144,6 +144,10 @@
         <div class="table-header">
           <h2>Monthly Spending Trend</h2>
           <div class="table-actions">
+            <label class="filter-label" for="date-from">From:</label>
+            <input type="month" id="date-from" class="month-input" onchange="updateAnalyticsChart()" />
+            <label class="filter-label" for="date-to">To:</label>
+            <input type="month" id="date-to" class="month-input" onchange="updateAnalyticsChart()" />
             <label class="filter-label" for="category-filter">Category:</label>
             <select id="category-filter" class="category-select" style="min-width:200px" onchange="updateAnalyticsChart()">
               <option value="__all__">Top Categories</option>
