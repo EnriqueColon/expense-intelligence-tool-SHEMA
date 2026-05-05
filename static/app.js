@@ -418,6 +418,7 @@ function renderDashboardCharts(categories, vendorRows) {
   tbody.innerHTML = '';
   sorted.forEach(row => {
     const tr = document.createElement('tr');
+    tr.dataset.vendor = row.vendor;
     tr.innerHTML =
       '<td class="desc">' + esc(row.vendor) + '</td>' +
       '<td style="text-align:center">' + row.count + '</td>' +
@@ -425,6 +426,7 @@ function renderDashboardCharts(categories, vendorRows) {
       '<td class="amount">' + fmt(row.avg) + '</td>';
     tbody.appendChild(tr);
   });
+  populateVendorDropdown('dash-vendor-filter-select', sorted);
 
   const topV = sorted.slice(0, 10);
   if (dashVendorChart) dashVendorChart.destroy();
@@ -758,6 +760,25 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function applyVendorFilter(bodyId, selectId) {
+  const val = document.getElementById(selectId).value;
+  document.querySelectorAll('#' + bodyId + ' tr').forEach(tr => {
+    tr.style.display = (!val || tr.dataset.vendor === val) ? '' : 'none';
+  });
+}
+
+function populateVendorDropdown(selectId, sorted) {
+  const fmt = v => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const sel = document.getElementById(selectId);
+  sel.innerHTML = '<option value="">All Vendors</option>';
+  sorted.forEach(row => {
+    const opt = document.createElement('option');
+    opt.value = row.vendor;
+    opt.textContent = row.vendor + ' — ' + fmt(row.total);
+    sel.appendChild(opt);
+  });
+}
+
 // --- Vendor Analysis ---
 let vendorChart = null;
 
@@ -833,6 +854,7 @@ function renderVendorAnalysis() {
   tbody.innerHTML = '';
   sorted.forEach(row => {
     const tr = document.createElement('tr');
+    tr.dataset.vendor = row.vendor;
     tr.innerHTML =
       '<td class="desc">' + esc(row.vendor) + '</td>' +
       '<td style="text-align:center">' + row.count + '</td>' +
@@ -840,6 +862,7 @@ function renderVendorAnalysis() {
       '<td class="amount">' + fmt(row.avg) + '</td>';
     tbody.appendChild(tr);
   });
+  populateVendorDropdown('vendor-filter-select', sorted);
 
   const top = sorted.slice(0, 10);
   if (vendorChart) vendorChart.destroy();

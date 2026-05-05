@@ -103,23 +103,26 @@
         <div class="card">
           <div class="table-header">
             <h2>Vendor Analysis</h2>
-            <span class="vendor-sub">Top vendors by total spend</span>
+            <div class="table-actions">
+              <label class="filter-label" for="vendor-filter-select">Vendor:</label>
+              <select id="vendor-filter-select" class="category-select" style="min-width:200px" onchange="applyVendorFilter('vendor-body','vendor-filter-select')">
+                <option value="">All Vendors</option>
+              </select>
+            </div>
           </div>
-          <div class="charts-grid vendor-charts">
-            <div class="card-body">
-              <h3 class="chart-title">Top 10 Vendors</h3>
-              <canvas id="chart-vendor"></canvas>
-            </div>
-            <div class="table-wrapper">
-              <table id="vendor-table">
-                <thead>
-                  <tr>
-                    <th>Vendor</th><th>Transactions</th><th>Total Spend</th><th>Avg. Transaction</th>
-                  </tr>
-                </thead>
-                <tbody id="vendor-body"></tbody>
-              </table>
-            </div>
+          <div class="card-body" style="padding-bottom:0.75rem">
+            <h3 class="chart-title">Top 10 Vendors</h3>
+            <canvas id="chart-vendor" style="max-height:260px"></canvas>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Vendor</th><th>Transactions</th><th>Total Spend</th><th>Avg. Transaction</th>
+                </tr>
+              </thead>
+              <tbody id="vendor-body"></tbody>
+            </table>
           </div>
         </div>
 
@@ -181,23 +184,26 @@
         <div class="card">
           <div class="table-header">
             <h2>Vendor Analysis</h2>
-            <span class="vendor-sub">Top vendors by total spend &mdash; all time</span>
+            <div class="table-actions">
+              <label class="filter-label" for="dash-vendor-filter-select">Vendor:</label>
+              <select id="dash-vendor-filter-select" class="category-select" style="min-width:200px" onchange="applyVendorFilter('dash-vendor-body','dash-vendor-filter-select')">
+                <option value="">All Vendors</option>
+              </select>
+            </div>
           </div>
-          <div class="charts-grid vendor-charts">
-            <div class="card-body">
-              <h3 class="chart-title">Top 10 Vendors</h3>
-              <canvas id="dash-chart-vendor"></canvas>
-            </div>
-            <div class="table-wrapper">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Vendor</th><th>Transactions</th><th>Total Spend</th><th>Avg. Transaction</th>
-                  </tr>
-                </thead>
-                <tbody id="dash-vendor-body"></tbody>
-              </table>
-            </div>
+          <div class="card-body" style="padding-bottom:0.75rem">
+            <h3 class="chart-title">Top 10 Vendors</h3>
+            <canvas id="dash-chart-vendor" style="max-height:260px"></canvas>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Vendor</th><th>Transactions</th><th>Total Spend</th><th>Avg. Transaction</th>
+                </tr>
+              </thead>
+              <tbody id="dash-vendor-body"></tbody>
+            </table>
           </div>
         </div>
 
