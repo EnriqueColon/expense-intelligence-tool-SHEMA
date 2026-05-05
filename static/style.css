@@ -314,6 +314,33 @@ select.category-select:focus { outline: none; border-color: #3b82f6; }
   font-weight: 500;
 }
 
+/* Cardholder rename */
+.ch-rename-body { padding: 0.85rem 1.5rem 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.ch-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.ch-badge {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  border-radius: 5px;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  min-width: 120px;
+  text-align: center;
+}
+.ch-arrow { color: #94a3b8; font-size: 0.9rem; }
+.ch-input {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  font-size: 0.82rem;
+  color: #374151;
+  background: #f8fafc;
+  min-width: 180px;
+}
+.ch-input:focus { outline: none; border-color: #3b82f6; background: white; }
+
 /* Month range picker */
 .month-input {
   padding: 0.3rem 0.55rem;

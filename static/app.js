@@ -137,7 +137,7 @@ async function handleFiles(fileList) {
   resultsEl.classList.remove('hidden');
 }
 
-function render() { renderStats(); renderCharts(); renderTable(); renderVendorAnalysis(); }
+function render() { renderStats(); renderCardholders(); renderCharts(); renderTable(); renderVendorAnalysis(); }
 
 function renderStats() {
   let charges = 0, credits = 0;
@@ -151,6 +151,28 @@ function renderStats() {
     '<div class="stat-card amber"><div class="stat-label">Total Charges</div><div class="stat-value">' + fmt(charges) + '</div></div>' +
     '<div class="stat-card green"><div class="stat-label">Total Credits / Payments</div><div class="stat-value">' + fmt(credits) + '</div></div>' +
     '<div class="stat-card"><div class="stat-label">Uploaded By</div><div class="stat-value" style="font-size:1.1rem">' + (username || '-') + '</div></div>';
+}
+
+function renderCardholders() {
+  const names = [...new Set(transactions.map(t => t.Cardholder || 'Primary'))].sort();
+  const el = document.getElementById('cardholder-rename');
+  el.innerHTML = names.map(name =>
+    '<div class="ch-row">' +
+      '<span class="ch-badge">' + esc(name) + '</span>' +
+      '<span class="ch-arrow">&#8594;</span>' +
+      '<input class="ch-input" type="text" placeholder="Rename to…" data-old="' + esc(name) + '" />' +
+      '<button class="btn btn-sm btn-primary ch-apply" onclick="renameCardholder(this)">Apply</button>' +
+    '</div>'
+  ).join('');
+}
+
+function renameCardholder(btnEl) {
+  const input  = btnEl.previousElementSibling;
+  const oldName = input.dataset.old;
+  const newName = input.value.trim();
+  if (!newName || newName === oldName) return;
+  transactions.forEach(t => { if ((t.Cardholder || 'Primary') === oldName) t.Cardholder = newName; });
+  render();
 }
 
 function renderCharts() {
