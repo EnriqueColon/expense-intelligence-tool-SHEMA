@@ -402,37 +402,57 @@ def get_analytics(username: str = Depends(verify_token)):
         conn.close()
 
 @app.get("/api/dashboard")
-def get_dashboard(username: str = Depends(verify_token)):
+def get_dashboard(
+    username: str = Depends(verify_token),
+    start: Optional[str] = None,
+    end:   Optional[str] = None,
+):
     conn = get_db()
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""
+
+        date_clauses, date_params = [], []
+        if start:
+            date_clauses.append("TO_CHAR(tb.created_at, 'YYYY-MM') >= %s")
+            date_params.append(start)
+        if end:
+            date_clauses.append("TO_CHAR(tb.created_at, 'YYYY-MM') <= %s")
+            date_params.append(end)
+        where = ("AND " + " AND ".join(date_clauses)) if date_clauses else ""
+
+        cur.execute(f"""
             SELECT
-                COUNT(*)::int                                                              AS total_transactions,
-                COUNT(DISTINCT batch_id)::int                                              AS total_batches,
-                ROUND(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END)::numeric, 2)::float AS total_charges,
-                ROUND(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END)::numeric, 2)::float AS total_credits
-            FROM transactions
-        """)
+                COUNT(t.id)::int                                                               AS total_transactions,
+                COUNT(DISTINCT t.batch_id)::int                                                AS total_batches,
+                ROUND(SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END)::numeric, 2)::float AS total_charges,
+                ROUND(SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount) ELSE 0 END)::numeric, 2)::float AS total_credits,
+                TO_CHAR(MIN(tb.created_at), 'YYYY-MM') AS min_month,
+                TO_CHAR(MAX(tb.created_at), 'YYYY-MM') AS max_month
+            FROM transactions t
+            JOIN transaction_batches tb ON t.batch_id = tb.id
+            WHERE 1=1 {where}
+        """, date_params)
         stats = dict(cur.fetchone())
 
-        cur.execute("""
-            SELECT category, ROUND(SUM(amount)::numeric, 2)::float AS total
-            FROM transactions
-            WHERE amount > 0
-            GROUP BY category
+        cur.execute(f"""
+            SELECT t.category, ROUND(SUM(t.amount)::numeric, 2)::float AS total
+            FROM transactions t
+            JOIN transaction_batches tb ON t.batch_id = tb.id
+            WHERE t.amount > 0 {where}
+            GROUP BY t.category
             ORDER BY total DESC
-        """)
+        """, date_params)
         categories = [dict(r) for r in cur.fetchall()]
 
-        cur.execute("""
-            SELECT description, ROUND(SUM(amount)::numeric, 2)::float AS total, COUNT(*)::int AS count
-            FROM transactions
-            WHERE amount > 0
-            GROUP BY description
+        cur.execute(f"""
+            SELECT t.description, ROUND(SUM(t.amount)::numeric, 2)::float AS total, COUNT(*)::int AS count
+            FROM transactions t
+            JOIN transaction_batches tb ON t.batch_id = tb.id
+            WHERE t.amount > 0 {where}
+            GROUP BY t.description
             ORDER BY total DESC
             LIMIT 500
-        """)
+        """, date_params)
         vendors = [dict(r) for r in cur.fetchall()]
 
         return {"stats": stats, "categories": categories, "vendors": vendors}

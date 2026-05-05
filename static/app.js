@@ -317,8 +317,15 @@ async function loadDashboard() {
   emptyEl.classList.add('hidden');
   contentEl.classList.add('hidden');
 
+  const fromVal = document.getElementById('dash-date-from').value;
+  const toVal   = document.getElementById('dash-date-to').value;
+  const params  = new URLSearchParams();
+  if (fromVal) params.append('start', fromVal);
+  if (toVal)   params.append('end',   toVal);
+  const qs = params.toString() ? '?' + params.toString() : '';
+
   try {
-    const res = await fetch('/api/dashboard', {
+    const res = await fetch('/api/dashboard' + qs, {
       headers: { 'Authorization': 'Bearer ' + token }
     });
     if (res.status === 401) { logout(); return; }
@@ -326,6 +333,10 @@ async function loadDashboard() {
     if (!res.ok) throw new Error(data.detail || 'Failed to load dashboard');
 
     const { stats, categories, vendors } = data;
+
+    // Auto-init pickers to the full available range on first load
+    if (!fromVal && stats.min_month) document.getElementById('dash-date-from').value = stats.min_month;
+    if (!toVal   && stats.max_month) document.getElementById('dash-date-to').value   = stats.max_month;
 
     if (!stats.total_transactions) {
       emptyEl.classList.remove('hidden');
@@ -336,13 +347,17 @@ async function loadDashboard() {
     renderDashboardCharts(categories, vendors);
     contentEl.classList.remove('hidden');
   } catch (e) {
-    emptyEl.querySelector
-      ? (emptyEl.innerHTML = '<div class="card card-body" style="text-align:center;color:#dc2626;padding:3rem">Could not load dashboard: ' + esc(e.message) + '</div>')
-      : null;
+    emptyEl.innerHTML = '<div class="card card-body" style="text-align:center;color:#dc2626;padding:3rem">Could not load dashboard: ' + esc(e.message) + '</div>';
     emptyEl.classList.remove('hidden');
   } finally {
     loadingEl.classList.add('hidden');
   }
+}
+
+function resetDashboardFilter() {
+  document.getElementById('dash-date-from').value = '';
+  document.getElementById('dash-date-to').value   = '';
+  loadDashboard();
 }
 
 function renderDashboardStats(stats) {
