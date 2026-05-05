@@ -367,6 +367,7 @@ async function loadDashboard() {
 
     renderDashboardStats(stats);
     renderDashboardCharts(categories, vendors);
+    renderDashboardRetrainStats(data.labeled_transactions || 0);
     contentEl.classList.remove('hidden');
   } catch (e) {
     emptyEl.innerHTML = '<div class="card card-body" style="text-align:center;color:#dc2626;padding:3rem">Could not load dashboard: ' + esc(e.message) + '</div>';
@@ -469,6 +470,48 @@ function renderDashboardCharts(categories, vendorRows) {
       scales: { x: { ticks: { callback: v => '$' + Number(v).toLocaleString() } } }
     }
   });
+}
+
+function renderDashboardRetrainStats(labeled) {
+  const el = document.getElementById('db-retrain-stats');
+  if (!el) return;
+  el.innerHTML =
+    '<span class="retrain-stat-pill">' + labeled.toLocaleString() +
+    ' labeled transaction' + (labeled !== 1 ? 's' : '') + ' available for training</span>';
+}
+
+async function retrainFromDatabase() {
+  const btn      = document.getElementById('db-retrain-btn');
+  const resultEl = document.getElementById('db-retrain-result');
+  btn.disabled = true;
+  btn.textContent = 'Retraining…';
+  resultEl.className = 'retrain-result retrain-loading';
+  resultEl.textContent = 'Training model on all database transactions…';
+  resultEl.classList.remove('hidden');
+  try {
+    const res = await fetch('/api/retrain/database', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (res.status === 401) { logout(); return; }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Retrain failed');
+    const persistMsg = data.persisted
+      ? 'Model saved to Vercel Blob — all future uploads will use the updated model.'
+      : 'Model updated for this session only.';
+    resultEl.className = 'retrain-result retrain-success';
+    resultEl.innerHTML =
+      '<strong>&#10003; Model retrained successfully</strong><br>' +
+      'Trained on <strong>' + data.samples + '</strong> transactions &middot; ' +
+      '<strong>' + data.categories.length + '</strong> categories learned<br>' +
+      '<span class="retrain-note">' + persistMsg + '</span>';
+  } catch (err) {
+    resultEl.className = 'retrain-result retrain-error';
+    resultEl.textContent = 'Retrain failed: ' + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '↺ Retrain from Database';
+  }
 }
 
 // --- Analytics (monthly line chart) ---

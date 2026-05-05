@@ -217,6 +217,27 @@
           </div>
         </div>
 
+        <div class="card retrain-card">
+          <div class="table-header">
+            <div>
+              <h2>Retrain Classification Model</h2>
+              <p class="retrain-hint">Retrain the model using all labeled transactions saved in the database.</p>
+            </div>
+            <button class="btn btn-retrain" id="db-retrain-btn" onclick="retrainFromDatabase()">&#8635; Retrain from Database</button>
+          </div>
+          <div class="db-retrain-stats" id="db-retrain-stats"></div>
+          <div class="retrain-result hidden" id="db-retrain-result"></div>
+          <div class="db-retrain-guidance">
+            <p class="db-retrain-guidance-title">When should you retrain?</p>
+            <ul>
+              <li><strong>50+ new transactions</strong> have been saved since the last retrain &mdash; more data means a better model.</li>
+              <li>You are <strong>manually correcting more than ~10&ndash;15% of classifications</strong> &mdash; this is the clearest sign the model is drifting.</li>
+              <li>You have <strong>added new expense types or vendors</strong> the model has not seen before.</li>
+              <li>As a backstop: <strong>every 6 months</strong> if none of the above have applied.</li>
+            </ul>
+          </div>
+        </div>
+
       </div>
 
       <div id="dash-loading" class="hidden" style="padding:3rem;text-align:center">

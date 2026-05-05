@@ -232,18 +232,10 @@ async def upload_pdf(file: UploadFile = File(...), username: str = Depends(verif
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/retrain")
-async def retrain_model(body: RetrainRequest, username: str = Depends(verify_token)):
+def _fit_and_save_pipeline(df: pd.DataFrame) -> tuple:
+    """Train a new pipeline on df (must have Description, Amount, Category columns).
+    Returns (new_pipeline, persisted: bool)."""
     global pipeline
-    if not body.transactions:
-        raise HTTPException(status_code=400, detail="No transactions provided.")
-    df = pd.DataFrame(body.transactions)
-    df["Amount"] = pd.to_numeric(df.get("Amount", 0), errors="coerce").fillna(0)
-    df = df.dropna(subset=["Description", "Category"])
-    df = df[df["Description"].astype(str).str.strip() != ""]
-    df = df[~df["Category"].astype(str).str.strip().isin(["", "Unclassified"])]
-    if len(df) < 5:
-        raise HTTPException(status_code=400, detail="Need at least 5 labeled transactions to retrain.")
     X = df[["Description", "Amount"]]
     y = df["Category"]
     text_pipe = Pipeline([("tfidf", TfidfVectorizer(stop_words="english"))])
@@ -258,11 +250,63 @@ async def retrain_model(body: RetrainRequest, username: str = Depends(verify_tok
     ])
     new_pipeline.fit(X, y)
     pipeline = new_pipeline
-
     model_buffer = io.BytesIO()
     joblib.dump(new_pipeline, model_buffer)
     saved = save_model_to_blob(model_buffer.getvalue())
+    return new_pipeline, saved
 
+@app.post("/api/retrain")
+async def retrain_model(body: RetrainRequest, username: str = Depends(verify_token)):
+    if not body.transactions:
+        raise HTTPException(status_code=400, detail="No transactions provided.")
+    df = pd.DataFrame(body.transactions)
+    df["Amount"] = pd.to_numeric(df.get("Amount", 0), errors="coerce").fillna(0)
+    df = df.dropna(subset=["Description", "Category"])
+    df = df[df["Description"].astype(str).str.strip() != ""]
+    df = df[~df["Category"].astype(str).str.strip().isin(["", "Unclassified"])]
+    if len(df) < 5:
+        raise HTTPException(status_code=400, detail="Need at least 5 labeled transactions to retrain.")
+    _, saved = _fit_and_save_pipeline(df)
+    y = df["Category"]
+    return {
+        "success": True,
+        "samples": len(df),
+        "categories": sorted(y.unique().tolist()),
+        "retrained_by": username,
+        "persisted": saved
+    }
+
+@app.post("/api/retrain/database")
+def retrain_from_database(username: str = Depends(verify_token)):
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT description AS "Description",
+                   amount::float AS "Amount",
+                   category AS "Category"
+            FROM transactions
+            WHERE amount > 0
+              AND description != ''
+              AND category NOT IN ('Unclassified', '')
+        """)
+        rows = [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+    if not rows:
+        raise HTTPException(status_code=400, detail="No labeled transactions found in the database.")
+    df = pd.DataFrame(rows)
+    df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
+    df = df.dropna(subset=["Description", "Category"])
+    df = df[df["Description"].astype(str).str.strip() != ""]
+    df = df[~df["Category"].astype(str).str.strip().isin(["", "Unclassified"])]
+    if len(df) < 5:
+        raise HTTPException(status_code=400, detail=f"Need at least 5 labeled transactions (found {len(df)}).")
+    _, saved = _fit_and_save_pipeline(df)
+    y = df["Category"]
     return {
         "success": True,
         "samples": len(df),
@@ -481,7 +525,15 @@ def get_dashboard(
         """, date_params)
         vendors = [dict(r) for r in cur.fetchall()]
 
-        return {"stats": stats, "categories": categories, "vendors": vendors}
+        # Global count of labeled transactions available for model training
+        cur.execute("""
+            SELECT COUNT(*)::int AS labeled_transactions
+            FROM transactions
+            WHERE amount > 0 AND description != '' AND category NOT IN ('Unclassified', '')
+        """)
+        labeled = cur.fetchone()["labeled_transactions"]
+
+        return {"stats": stats, "categories": categories, "vendors": vendors, "labeled_transactions": labeled}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
