@@ -75,57 +75,86 @@ def parse_pdf_text(uploaded_file):
     return pdf_lines
 
 
+_STD_PURCHASES = re.compile(
+    r'^standard purchases(\s*$|,|\s+cont)', re.IGNORECASE
+)
+
+
+def _prescan_cardholders(lines):
+    """
+    Pass 1: scan the entire document to find every cardholder section.
+
+    For each line that looks like a personal name, search forward up to
+    60 lines for a bare "Standard Purchases" header (no dollar amount on
+    the same line).  Record the line index AFTER that header as the section
+    start — that is where the cardholder's transactions begin.
+
+    Returns a list of (section_start_line, name_title) sorted by position.
+    The wide 60-line window handles Citi's two-column interleaving, which
+    can inject the AAdvantage miles block AND the Cardholder Summary table
+    between the name header and "Standard Purchases".
+    """
+    sections = []
+    seen = set()
+    for i, raw in enumerate(lines):
+        line = raw.strip()
+        if not _is_cardholder_line(line):
+            continue
+        name_title = line.title()
+        if name_title in seen:
+            continue
+        for j in range(i + 1, min(i + 61, len(lines))):
+            if _STD_PURCHASES.match(lines[j].strip()):
+                sections.append((j + 1, name_title))
+                seen.add(name_title)
+                break
+    return sorted(sections, key=lambda x: x[0])
+
+
 def extract_transactions_from_text(lines):
+    """
+    Pass 2: parse transactions, using pre-scanned cardholder checkpoints
+    to assign each transaction to the correct cardholder.
+
+    Transactions that appear before the first detected cardholder section
+    (e.g. account-level ONLINE PAYMENT entries at the top of the statement)
+    are attributed to the first confirmed cardholder rather than "Primary",
+    since on a multi-cardholder business card all charges belong to someone.
+    """
+    sections = _prescan_cardholders(lines)
+    confirmed_cardholders = {name for _, name in sections}
+
+    # Default: first confirmed name, or "Primary" if the doc has no names at all.
+    default_cardholder = sections[0][1] if sections else "Primary"
+    current_cardholder = default_cardholder
+
+    # Checkpoint pointer — advance through sections as we walk the lines.
+    chk_idx = 0
+
     transactions = []
-    current_cardholder = "Primary"
-    confirmed_cardholders = set()  # names already confirmed via "Standard Purchases"
     i = 0
 
     while i < len(lines) - 2:
+
+        # Advance checkpoint: switch cardholder when we reach a section start.
+        while chk_idx < len(sections) and i >= sections[chk_idx][0]:
+            current_cardholder = sections[chk_idx][1]
+            chk_idx += 1
+
         line_1 = lines[i].strip()
         line_2 = lines[i + 1].strip()
         line_3 = lines[i + 2].strip()
 
-        # Detect named cardholder transaction section.
-        # Citi PDFs use a two-column layout; PyMuPDF interleaves right-column
-        # blocks (AAdvantage miles section) between the section name header and
-        # "Standard Purchases", so they are not always adjacent lines.
-        # On page continuations the header reads "Standard Purchases, Cont'd"
-        # and the name may reappear without any "Standard Purchases" line at all.
+        # Page-continuation: the name reappears (no new "Standard Purchases"
+        # header) — switch cardholder immediately.
         if _is_cardholder_line(line_1):
-            name_title = line_1.strip().title()
-
-            # If we've already confirmed this name once, accept it again without
-            # requiring a "Standard Purchases" line (handles page continuations).
+            name_title = line_1.title()
             if name_title in confirmed_cardholders:
                 current_cardholder = name_title
                 i += 1
                 continue
 
-            # First occurrence: require "Standard Purchases" (exact or continuation
-            # variant) within the next 25 lines.
-            # The date-break is intentionally absent: Citi PDFs interleave
-            # AAdvantage miles content (which contains MM/DD date strings) between
-            # the cardholder name and "Standard Purchases". That interleaved block
-            # was causing the break to fire before "Standard Purchases" was found,
-            # leaving the cardholder undetected. The Cardholder Summary table is
-            # safe because its "Standard Purchases $X,XXX" rows always carry an
-            # amount on the same line and will NOT match this regex.
-            found_at = -1
-            for j in range(i + 1, min(i + 26, len(lines))):
-                s = lines[j].strip()
-                # Matches "Standard Purchases", "Standard Purchases, Cont'd", etc.
-                # Does NOT match "Standard Purchases  $1,234.56" (has $ after space).
-                if re.match(r'^standard purchases(\s*$|,|\s+cont)', s, re.IGNORECASE):
-                    found_at = j
-                    break
-            if found_at >= 0:
-                current_cardholder = name_title
-                confirmed_cardholders.add(name_title)
-                i = found_at + 1
-                continue
-
-        # Payment transaction (3-line pattern: date / description / amount)
+        # Payment transaction (3-line: date / description / amount)
         if (
             len(line_1) >= 4 and line_1[:2].isdigit() and
             "PAYMENT" in line_2.upper() and
@@ -142,12 +171,12 @@ def extract_transactions_from_text(lines):
                 "Post Date": line_1,
                 "Description": line_2,
                 "Amount": amount,
-                "Cardholder": current_cardholder
+                "Cardholder": current_cardholder,
             })
             i += 3
             continue
 
-        # Purchase transaction (4-line pattern: sale date / post date / desc / amount)
+        # Purchase transaction (4-line: sale date / post date / desc / amount)
         if i < len(lines) - 3:
             line_4 = lines[i + 3].strip()
             if (
@@ -165,7 +194,7 @@ def extract_transactions_from_text(lines):
                     "Post Date": line_2,
                     "Description": line_3,
                     "Amount": amount,
-                    "Cardholder": current_cardholder
+                    "Cardholder": current_cardholder,
                 })
                 i += 4
                 continue
