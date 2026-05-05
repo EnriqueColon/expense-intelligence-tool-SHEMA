@@ -154,9 +154,12 @@ def extract_transactions_from_text(lines):
         line_2 = lines[i + 1].strip()
         line_3 = lines[i + 2].strip()
 
-        # Page-continuation: the name reappears (no new "Standard Purchases"
-        # header) — switch cardholder immediately.
-        if _is_cardholder_line(line_1):
+        # Page-continuation: the name reappears after we have already entered
+        # the transaction section (chk_idx > 0).  Guard against pre-transaction
+        # header lines (account header, mailing address, etc.) that contain a
+        # confirmed cardholder name and would otherwise override the
+        # pre-checkpoint default before the first transaction is seen.
+        if chk_idx > 0 and _is_cardholder_line(line_1):
             name_title = line_1.title()
             if name_title in confirmed_cardholders:
                 current_cardholder = name_title
