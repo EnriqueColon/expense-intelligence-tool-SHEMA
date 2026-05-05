@@ -14,11 +14,12 @@ function logout() {
 
 // --- Tab navigation ---
 function switchTab(tab) {
-  document.getElementById('view-upload').classList.toggle('hidden', tab !== 'upload');
-  document.getElementById('view-history').classList.toggle('hidden', tab !== 'history');
-  document.getElementById('tab-upload').classList.toggle('active', tab === 'upload');
-  document.getElementById('tab-history').classList.toggle('active', tab === 'history');
-  if (tab === 'history') loadHistory();
+  ['upload', 'dashboard', 'history'].forEach(t => {
+    document.getElementById('view-' + t).classList.toggle('hidden', tab !== t);
+    document.getElementById('tab-' + t).classList.toggle('active', tab === t);
+  });
+  if (tab === 'history')   loadHistory();
+  if (tab === 'dashboard') loadDashboard();
 }
 
 // --- State ---
@@ -30,6 +31,9 @@ let activeBatchId = null;
 let batchTxns     = [];
 let lineChart     = null;
 let analyticsData = [];
+let dashDonutChart  = null;
+let dashBarChart    = null;
+let dashVendorChart = null;
 
 const CATEGORIES = [
   'Advertising & Marketing', 'Bank Charges & Fees', 'Business Meals & Entertainment',
@@ -294,12 +298,138 @@ async function saveTransactions() {
     btn.textContent = '✓ Saved';
     status.className = 'save-status save-status-ok';
     status.textContent = data.count + ' transactions saved.';
+    loadDashboard();
   } catch (err) {
     btn.disabled = false;
     btn.textContent = '⇓ Save to Database';
     status.className = 'save-status save-status-err';
     status.textContent = 'Save failed: ' + err.message;
   }
+}
+
+// --- Dashboard ---
+async function loadDashboard() {
+  const loadingEl = document.getElementById('dash-loading');
+  const emptyEl   = document.getElementById('dash-empty');
+  const contentEl = document.getElementById('dash-content');
+
+  loadingEl.classList.remove('hidden');
+  emptyEl.classList.add('hidden');
+  contentEl.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/dashboard', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (res.status === 401) { logout(); return; }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Failed to load dashboard');
+
+    const { stats, categories, vendors } = data;
+
+    if (!stats.total_transactions) {
+      emptyEl.classList.remove('hidden');
+      return;
+    }
+
+    renderDashboardStats(stats);
+    renderDashboardCharts(categories, vendors);
+    contentEl.classList.remove('hidden');
+  } catch (e) {
+    emptyEl.querySelector
+      ? (emptyEl.innerHTML = '<div class="card card-body" style="text-align:center;color:#dc2626;padding:3rem">Could not load dashboard: ' + esc(e.message) + '</div>')
+      : null;
+    emptyEl.classList.remove('hidden');
+  } finally {
+    loadingEl.classList.add('hidden');
+  }
+}
+
+function renderDashboardStats(stats) {
+  const fmt = v => '$' + (v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  document.getElementById('dash-stats-grid').innerHTML =
+    '<div class="stat-card"><div class="stat-label">Total Transactions</div><div class="stat-value">' + (stats.total_transactions || 0) + '</div></div>' +
+    '<div class="stat-card"><div class="stat-label">Total Batches</div><div class="stat-value">' + (stats.total_batches || 0) + '</div></div>' +
+    '<div class="stat-card amber"><div class="stat-label">Total Charges</div><div class="stat-value">' + fmt(stats.total_charges) + '</div></div>' +
+    '<div class="stat-card green"><div class="stat-label">Total Credits / Payments</div><div class="stat-value">' + fmt(stats.total_credits) + '</div></div>';
+}
+
+function renderDashboardCharts(categories, vendorRows) {
+  const fmt = v => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const labels = categories.map(c => c.category);
+  const data   = categories.map(c => +c.total.toFixed(2));
+
+  if (dashDonutChart) dashDonutChart.destroy();
+  dashDonutChart = new Chart(document.getElementById('dash-chart-donut'), {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data, backgroundColor: CHART_COLORS.slice(0, labels.length), borderWidth: 2 }] },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 11 }, padding: 10 } },
+        tooltip: { callbacks: { label: ctx => ' $' + ctx.parsed.toLocaleString('en-US', { minimumFractionDigits: 2 }) } }
+      }
+    }
+  });
+
+  const top = categories.slice(0, 10);
+  if (dashBarChart) dashBarChart.destroy();
+  dashBarChart = new Chart(document.getElementById('dash-chart-bar'), {
+    type: 'bar',
+    data: {
+      labels: top.map(c => c.category),
+      datasets: [{ label: 'Total ($)', data: top.map(c => +c.total.toFixed(2)), backgroundColor: '#3b82f6', borderRadius: 4 }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { x: { ticks: { callback: v => '$' + Number(v).toLocaleString() } } }
+    }
+  });
+
+  // Normalize + re-aggregate vendors from raw DB descriptions
+  const vendorMap = {};
+  vendorRows.forEach(row => {
+    const vendor = normalizeVendor(row.description);
+    if (!vendorMap[vendor]) vendorMap[vendor] = { count: 0, total: 0 };
+    vendorMap[vendor].count += row.count;
+    vendorMap[vendor].total += row.total;
+  });
+  const sorted = Object.entries(vendorMap)
+    .map(([vendor, v]) => ({ vendor, count: v.count, total: v.total, avg: v.total / v.count }))
+    .sort((a, b) => b.total - a.total);
+
+  const tbody = document.getElementById('dash-vendor-body');
+  tbody.innerHTML = '';
+  sorted.forEach(row => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td class="desc">' + esc(row.vendor) + '</td>' +
+      '<td style="text-align:center">' + row.count + '</td>' +
+      '<td class="amount">' + fmt(row.total) + '</td>' +
+      '<td class="amount">' + fmt(row.avg) + '</td>';
+    tbody.appendChild(tr);
+  });
+
+  const topV = sorted.slice(0, 10);
+  if (dashVendorChart) dashVendorChart.destroy();
+  dashVendorChart = new Chart(document.getElementById('dash-chart-vendor'), {
+    type: 'bar',
+    data: {
+      labels: topV.map(r => r.vendor.length > 30 ? r.vendor.slice(0, 28) + '…' : r.vendor),
+      datasets: [{
+        label: 'Total Spend ($)',
+        data: topV.map(r => +r.total.toFixed(2)),
+        backgroundColor: CHART_COLORS.slice(0, topV.length),
+        borderRadius: 4
+      }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { x: { ticks: { callback: v => '$' + Number(v).toLocaleString() } } }
+    }
+  });
 }
 
 // --- Analytics (monthly line chart) ---

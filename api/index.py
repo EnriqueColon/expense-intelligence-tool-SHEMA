@@ -401,6 +401,46 @@ def get_analytics(username: str = Depends(verify_token)):
     finally:
         conn.close()
 
+@app.get("/api/dashboard")
+def get_dashboard(username: str = Depends(verify_token)):
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT
+                COUNT(*)::int                                                              AS total_transactions,
+                COUNT(DISTINCT batch_id)::int                                              AS total_batches,
+                ROUND(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END)::numeric, 2)::float AS total_charges,
+                ROUND(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END)::numeric, 2)::float AS total_credits
+            FROM transactions
+        """)
+        stats = dict(cur.fetchone())
+
+        cur.execute("""
+            SELECT category, ROUND(SUM(amount)::numeric, 2)::float AS total
+            FROM transactions
+            WHERE amount > 0
+            GROUP BY category
+            ORDER BY total DESC
+        """)
+        categories = [dict(r) for r in cur.fetchall()]
+
+        cur.execute("""
+            SELECT description, ROUND(SUM(amount)::numeric, 2)::float AS total, COUNT(*)::int AS count
+            FROM transactions
+            WHERE amount > 0
+            GROUP BY description
+            ORDER BY total DESC
+            LIMIT 500
+        """)
+        vendors = [dict(r) for r in cur.fetchall()]
+
+        return {"stats": stats, "categories": categories, "vendors": vendors}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 @app.get("/api/health")
 def health():
     return {
