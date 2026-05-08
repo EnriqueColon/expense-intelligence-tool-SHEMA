@@ -344,9 +344,11 @@ async function loadDashboard() {
 
   const fromVal = document.getElementById('dash-date-from').value;
   const toVal   = document.getElementById('dash-date-to').value;
+  const chVal   = document.getElementById('dash-cardholder-filter').value;
   const params  = new URLSearchParams();
-  if (fromVal) params.append('start', fromVal);
-  if (toVal)   params.append('end',   toVal);
+  if (fromVal) params.append('start',      fromVal);
+  if (toVal)   params.append('end',        toVal);
+  if (chVal)   params.append('cardholder', chVal);
   const qs = params.toString() ? '?' + params.toString() : '';
 
   try {
@@ -358,6 +360,9 @@ async function loadDashboard() {
     if (!res.ok) throw new Error(data.detail || 'Failed to load dashboard');
 
     const { stats, categories, vendors } = data;
+
+    // Populate cardholder dropdown (preserves current selection)
+    populateDashCardholderDropdown(data.cardholders || []);
 
     // Auto-init pickers to the full available range on first load
     if (!fromVal && stats.min_month) document.getElementById('dash-date-from').value = stats.min_month;
@@ -381,9 +386,23 @@ async function loadDashboard() {
 }
 
 function resetDashboardFilter() {
-  document.getElementById('dash-date-from').value = '';
-  document.getElementById('dash-date-to').value   = '';
+  document.getElementById('dash-date-from').value        = '';
+  document.getElementById('dash-date-to').value          = '';
+  document.getElementById('dash-cardholder-filter').value = '';
   loadDashboard();
+}
+
+function populateDashCardholderDropdown(cardholders) {
+  const sel     = document.getElementById('dash-cardholder-filter');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All Cardholders</option>';
+  cardholders.forEach(ch => {
+    const opt = document.createElement('option');
+    opt.value       = ch;
+    opt.textContent = ch;
+    if (ch === current) opt.selected = true;
+    sel.appendChild(opt);
+  });
 }
 
 function renderDashboardStats(stats) {

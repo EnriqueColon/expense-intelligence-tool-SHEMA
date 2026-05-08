@@ -474,13 +474,15 @@ def get_analytics(username: str = Depends(verify_token)):
 @app.get("/api/dashboard")
 def get_dashboard(
     username: str = Depends(verify_token),
-    start: Optional[str] = None,
-    end:   Optional[str] = None,
+    start:      Optional[str] = None,
+    end:        Optional[str] = None,
+    cardholder: Optional[str] = None,
 ):
     conn = get_db()
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
+        # Date filter (applied to all data queries)
         date_clauses, date_params = [], []
         if start:
             date_clauses.append("TO_CHAR(tb.created_at, 'YYYY-MM') >= %s")
@@ -488,7 +490,17 @@ def get_dashboard(
         if end:
             date_clauses.append("TO_CHAR(tb.created_at, 'YYYY-MM') <= %s")
             date_params.append(end)
-        where = ("AND " + " AND ".join(date_clauses)) if date_clauses else ""
+        date_where = ("AND " + " AND ".join(date_clauses)) if date_clauses else ""
+
+        # Cardholder filter (added on top of date filter for data queries)
+        ch_clause = ""
+        ch_params: list = []
+        if cardholder:
+            ch_clause = "AND t.cardholder = %s"
+            ch_params = [cardholder]
+
+        full_where = date_where + (" " + ch_clause if ch_clause else "")
+        full_params = date_params + ch_params
 
         cur.execute(f"""
             SELECT
@@ -500,30 +512,41 @@ def get_dashboard(
                 TO_CHAR(MAX(tb.created_at), 'YYYY-MM') AS max_month
             FROM transactions t
             JOIN transaction_batches tb ON t.batch_id = tb.id
-            WHERE 1=1 {where}
-        """, date_params)
+            WHERE 1=1 {full_where}
+        """, full_params)
         stats = dict(cur.fetchone())
 
         cur.execute(f"""
             SELECT t.category, ROUND(SUM(t.amount)::numeric, 2)::float AS total
             FROM transactions t
             JOIN transaction_batches tb ON t.batch_id = tb.id
-            WHERE t.amount > 0 {where}
+            WHERE t.amount > 0 {full_where}
             GROUP BY t.category
             ORDER BY total DESC
-        """, date_params)
+        """, full_params)
         categories = [dict(r) for r in cur.fetchall()]
 
         cur.execute(f"""
             SELECT t.description, ROUND(SUM(t.amount)::numeric, 2)::float AS total, COUNT(*)::int AS count
             FROM transactions t
             JOIN transaction_batches tb ON t.batch_id = tb.id
-            WHERE t.amount > 0 {where}
+            WHERE t.amount > 0 {full_where}
             GROUP BY t.description
             ORDER BY total DESC
             LIMIT 500
-        """, date_params)
+        """, full_params)
         vendors = [dict(r) for r in cur.fetchall()]
+
+        # Distinct cardholders for the selected date range (not filtered by cardholder
+        # so the dropdown always shows all available names)
+        cur.execute(f"""
+            SELECT DISTINCT t.cardholder
+            FROM transactions t
+            JOIN transaction_batches tb ON t.batch_id = tb.id
+            WHERE t.cardholder IS NOT NULL AND t.cardholder != '' {date_where}
+            ORDER BY t.cardholder
+        """, date_params)
+        cardholders = [r["cardholder"] for r in cur.fetchall()]
 
         # Global count of labeled transactions available for model training
         cur.execute("""
@@ -533,7 +556,13 @@ def get_dashboard(
         """)
         labeled = cur.fetchone()["labeled_transactions"]
 
-        return {"stats": stats, "categories": categories, "vendors": vendors, "labeled_transactions": labeled}
+        return {
+            "stats": stats,
+            "categories": categories,
+            "vendors": vendors,
+            "cardholders": cardholders,
+            "labeled_transactions": labeled,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:

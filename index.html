@@ -176,6 +176,10 @@
             <div class="table-header">
               <h2>Overview</h2>
               <div class="table-actions">
+                <label class="filter-label" for="dash-cardholder-filter">Cardholder:</label>
+                <select id="dash-cardholder-filter" class="category-select" onchange="loadDashboard()">
+                  <option value="">All Cardholders</option>
+                </select>
                 <label class="filter-label" for="dash-date-from">From:</label>
                 <input type="month" id="dash-date-from" class="month-input" onchange="loadDashboard()" />
                 <label class="filter-label" for="dash-date-to">To:</label>
