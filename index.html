@@ -9,327 +9,345 @@
 </head>
 <body>
 
-  <header>
-    <div class="header-inner">
-      <div class="logo">
+  <div class="app-layout">
+
+    <!-- ===== SIDEBAR ===== -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
         <span class="logo-mark">S</span>
         <div>
           <div class="logo-title">SHEMA</div>
-          <div class="logo-sub">Expense Intelligence Tool</div>
+          <div class="logo-sub">Expense Intelligence</div>
         </div>
       </div>
-      <div class="header-right">
-        <span class="user-badge" id="user-display"></span>
-        <button class="btn btn-signout" onclick="logout()">Sign Out</button>
-      </div>
-    </div>
-  </header>
 
-  <!-- Tab navigation -->
-  <div class="view-tabs">
-    <div class="tabs-inner">
-      <button class="tab-btn active" id="tab-upload"    onclick="switchTab('upload')">Upload</button>
-      <button class="tab-btn"        id="tab-dashboard" onclick="switchTab('dashboard')">Dashboard</button>
-      <button class="tab-btn"        id="tab-history"   onclick="switchTab('history')">Transaction History</button>
+      <div class="sidebar-section-label">Navigation</div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-item active" id="tab-upload" onclick="switchTab('upload')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Upload
+        </button>
+        <button class="nav-item" id="tab-dashboard" onclick="switchTab('dashboard')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Dashboard
+        </button>
+        <button class="nav-item" id="tab-history" onclick="switchTab('history')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Transaction History
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <span class="sidebar-user-name" id="user-display"></span>
+      </div>
+    </aside>
+
+    <!-- ===== MAIN BODY ===== -->
+    <div class="app-body">
+
+      <header class="topbar">
+        <div class="topbar-title" id="topbar-title">Upload</div>
+        <div class="topbar-right">
+          <button class="btn btn-signout" onclick="logout()">Sign Out</button>
+        </div>
+      </header>
+
+      <main>
+
+        <!-- ===== UPLOAD VIEW ===== -->
+        <div id="view-upload">
+
+          <div class="card" id="upload-card">
+            <div class="card-body">
+              <div class="drop-zone" id="drop-zone">
+                <div class="drop-icon">&#8679;</div>
+                <h3>Drop credit card PDFs here</h3>
+                <p>or click to browse &mdash; multiple files supported</p>
+                <input type="file" id="file-input" accept=".pdf" multiple hidden />
+              </div>
+              <div class="loading hidden" id="loading">
+                <div class="spinner"></div>
+                <p id="loading-text">Parsing and classifying transactions&hellip;</p>
+                <div class="bulk-progress hidden" id="bulk-progress">
+                  <div class="bulk-bar-track"><div class="bulk-bar-fill" id="bulk-bar"></div></div>
+                </div>
+              </div>
+              <div class="error-msg hidden" id="error"></div>
+            </div>
+          </div>
+
+          <!-- Results -->
+          <div id="results" class="hidden">
+
+            <div class="stats-grid" id="stats-grid"></div>
+
+            <div class="card">
+              <div class="table-header">
+                <div>
+                  <h2>Cardholders</h2>
+                  <p class="retrain-hint">Rename any label before saving &mdash; changes apply to all matching transactions.</p>
+                </div>
+              </div>
+              <div class="ch-rename-body" id="cardholder-rename"></div>
+            </div>
+
+            <div class="charts-grid">
+              <div class="card chart-card">
+                <div class="card-body">
+                  <h3 class="chart-title">Spend by Category</h3>
+                  <canvas id="chart-donut"></canvas>
+                </div>
+              </div>
+              <div class="card chart-card">
+                <div class="card-body">
+                  <h3 class="chart-title">Top Categories by Amount</h3>
+                  <canvas id="chart-bar"></canvas>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="table-header">
+                <h2>Transactions</h2>
+                <div class="table-actions">
+                  <div id="save-status" class="save-status hidden"></div>
+                  <button class="btn btn-save" id="save-btn" onclick="saveTransactions()">&#8659; Save to Database</button>
+                  <button class="btn btn-primary" onclick="downloadCSV()">&#8595; Download CSV</button>
+                </div>
+              </div>
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Sale Date</th><th>Post Date</th><th>Description</th>
+                      <th>Amount</th><th>Category</th><th>Cardholder</th>
+                    </tr>
+                  </thead>
+                  <tbody id="table-body"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="table-header">
+                <h2>Vendor Analysis</h2>
+                <div class="table-actions">
+                  <label class="filter-label" for="vendor-filter-select">Vendor:</label>
+                  <select id="vendor-filter-select" class="category-select" style="min-width:200px" onchange="applyVendorFilter('vendor-body','vendor-filter-select')">
+                    <option value="">All Vendors</option>
+                  </select>
+                </div>
+              </div>
+              <div class="card-body" style="padding-bottom:0.75rem">
+                <h3 class="chart-title">Top 10 Vendors</h3>
+                <canvas id="chart-vendor" style="max-height:260px"></canvas>
+              </div>
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Vendor</th><th>Transactions</th><th>Total Spend</th><th>Avg. Transaction</th>
+                    </tr>
+                  </thead>
+                  <tbody id="vendor-body"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card retrain-card">
+              <div class="table-header">
+                <div>
+                  <h2>Retrain Model</h2>
+                  <p class="retrain-hint">Correct the categories above, then click Retrain to improve future classifications.</p>
+                </div>
+                <button class="btn btn-retrain" id="retrain-btn" onclick="retrainModel()">&#8635; Retrain Model</button>
+              </div>
+              <div class="retrain-result hidden" id="retrain-result"></div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ===== DASHBOARD VIEW ===== -->
+        <div id="view-dashboard" class="hidden">
+
+          <div class="card">
+            <div class="table-header">
+              <h2>Overview</h2>
+              <div class="table-actions">
+                <label class="filter-label" for="dash-date-from">From:</label>
+                <input type="month" id="dash-date-from" class="month-input" onchange="loadDashboard()" />
+                <label class="filter-label" for="dash-date-to">To:</label>
+                <input type="month" id="dash-date-to" class="month-input" onchange="loadDashboard()" />
+                <button class="btn btn-ghost btn-sm" onclick="resetDashboardFilter()">Reset</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="dash-empty" class="hidden">
+            <div class="card card-body" style="text-align:center;color:#64748b;padding:3rem">
+              No saved data yet &mdash; upload and save PDFs to see your dashboard here.
+            </div>
+          </div>
+
+          <div id="dash-content" class="hidden">
+
+            <div class="stats-grid" id="dash-stats-grid"></div>
+
+            <div class="charts-grid">
+              <div class="card chart-card">
+                <div class="card-body">
+                  <h3 class="chart-title">Spend by Category</h3>
+                  <canvas id="dash-chart-donut"></canvas>
+                </div>
+              </div>
+              <div class="card chart-card">
+                <div class="card-body">
+                  <h3 class="chart-title">Top Categories by Amount</h3>
+                  <canvas id="dash-chart-bar"></canvas>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="table-header">
+                <h2>Vendor Analysis</h2>
+                <div class="table-actions">
+                  <label class="filter-label" for="dash-vendor-filter-select">Vendor:</label>
+                  <select id="dash-vendor-filter-select" class="category-select" style="min-width:200px" onchange="applyVendorFilter('dash-vendor-body','dash-vendor-filter-select')">
+                    <option value="">All Vendors</option>
+                  </select>
+                </div>
+              </div>
+              <div class="card-body" style="padding-bottom:0.75rem">
+                <h3 class="chart-title">Top 10 Vendors</h3>
+                <canvas id="dash-chart-vendor" style="max-height:260px"></canvas>
+              </div>
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Vendor</th><th>Transactions</th><th>Total Spend</th><th>Avg. Transaction</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dash-vendor-body"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card retrain-card">
+              <div class="table-header">
+                <div>
+                  <h2>Retrain Classification Model</h2>
+                  <p class="retrain-hint">Retrain the model using all labeled transactions saved in the database.</p>
+                </div>
+                <button class="btn btn-retrain" id="db-retrain-btn" onclick="retrainFromDatabase()">&#8635; Retrain from Database</button>
+              </div>
+              <div class="db-retrain-stats" id="db-retrain-stats"></div>
+              <div class="retrain-result hidden" id="db-retrain-result"></div>
+              <div class="db-retrain-guidance">
+                <p class="db-retrain-guidance-title">When should you retrain?</p>
+                <ul>
+                  <li><strong>50+ new transactions</strong> have been saved since the last retrain &mdash; more data means a better model.</li>
+                  <li>You are <strong>manually correcting more than ~10&ndash;15% of classifications</strong> &mdash; this is the clearest sign the model is drifting.</li>
+                  <li>You have <strong>added new expense types or vendors</strong> the model has not seen before.</li>
+                  <li>As a backstop: <strong>every 6 months</strong> if none of the above have applied.</li>
+                </ul>
+              </div>
+            </div>
+
+          </div>
+
+          <div id="dash-loading" class="hidden" style="padding:3rem;text-align:center">
+            <div class="spinner" style="margin:0 auto 0.75rem"></div>
+            <p style="color:#64748b;font-size:0.9rem">Loading dashboard&hellip;</p>
+          </div>
+
+        </div>
+
+        <!-- ===== HISTORY VIEW ===== -->
+        <div id="view-history" class="hidden">
+
+          <div class="card">
+            <div class="table-header">
+              <h2>Monthly Spending Trend</h2>
+              <div class="table-actions">
+                <label class="filter-label" for="date-from">From:</label>
+                <input type="month" id="date-from" class="month-input" onchange="updateAnalyticsChart()" />
+                <label class="filter-label" for="date-to">To:</label>
+                <input type="month" id="date-to" class="month-input" onchange="updateAnalyticsChart()" />
+                <label class="filter-label" for="category-filter">Category:</label>
+                <select id="category-filter" class="category-select" style="min-width:200px" onchange="updateAnalyticsChart()">
+                  <option value="__all__">Top Categories</option>
+                  <option value="__total__">Total Spend</option>
+                </select>
+              </div>
+            </div>
+            <div class="card-body" style="padding-top:0.25rem">
+              <div id="analytics-empty" class="analytics-empty hidden">
+                No saved data yet &mdash; upload and save PDFs to see trends here.
+              </div>
+              <canvas id="chart-line" style="max-height:340px"></canvas>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="table-header">
+              <h2>Saved Transaction Batches</h2>
+              <button class="btn btn-primary" onclick="loadHistory()">&#8635; Refresh</button>
+            </div>
+            <div id="history-loading" class="hidden" style="padding:2rem;text-align:center">
+              <div class="spinner" style="margin:0 auto 0.75rem"></div>
+              <p style="color:#64748b;font-size:0.9rem">Loading history&hellip;</p>
+            </div>
+            <div id="history-empty" class="hidden" style="padding:2rem 1.5rem;color:#64748b;font-size:0.9rem">
+              No saved batches yet. Upload PDFs and click <strong>Save to Database</strong>.
+            </div>
+            <div class="table-wrapper" id="history-table-wrap" style="display:none">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date Saved</th><th>Filename</th><th>Transactions</th><th>Uploaded By</th><th></th>
+                  </tr>
+                </thead>
+                <tbody id="history-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="history-batch-detail" class="hidden">
+            <div class="card">
+              <div class="table-header">
+                <div>
+                  <h2 id="batch-detail-title">Transactions</h2>
+                  <p class="retrain-hint" id="batch-detail-sub"></p>
+                </div>
+                <div class="table-actions">
+                  <button class="btn btn-primary" onclick="downloadBatchCSV()">&#8595; Download CSV</button>
+                  <button class="btn btn-ghost" onclick="closeBatchDetail()">&#10005; Close</button>
+                </div>
+              </div>
+              <div class="ch-rename-body" id="batch-ch-rename"></div>
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Sale Date</th><th>Post Date</th><th>Description</th>
+                      <th>Amount</th><th>Category</th><th>Cardholder</th><th>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody id="batch-detail-body"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </main>
     </div>
   </div>
-
-  <main>
-
-    <!-- ===== UPLOAD VIEW ===== -->
-    <div id="view-upload">
-
-      <div class="card" id="upload-card">
-        <div class="card-body">
-          <div class="drop-zone" id="drop-zone">
-            <div class="drop-icon">&#8679;</div>
-            <h3>Drop credit card PDFs here</h3>
-            <p>or click to browse &mdash; multiple files supported</p>
-            <input type="file" id="file-input" accept=".pdf" multiple hidden />
-          </div>
-          <div class="loading hidden" id="loading">
-            <div class="spinner"></div>
-            <p id="loading-text">Parsing and classifying transactions&hellip;</p>
-            <div class="bulk-progress hidden" id="bulk-progress">
-              <div class="bulk-bar-track"><div class="bulk-bar-fill" id="bulk-bar"></div></div>
-            </div>
-          </div>
-          <div class="error-msg hidden" id="error"></div>
-        </div>
-      </div>
-
-      <!-- Results -->
-      <div id="results" class="hidden">
-
-        <div class="stats-grid" id="stats-grid"></div>
-
-        <div class="card">
-          <div class="table-header">
-            <div>
-              <h2>Cardholders</h2>
-              <p class="retrain-hint">Rename any label before saving &mdash; changes apply to all matching transactions.</p>
-            </div>
-          </div>
-          <div class="ch-rename-body" id="cardholder-rename"></div>
-        </div>
-
-        <div class="charts-grid">
-          <div class="card chart-card">
-            <div class="card-body">
-              <h3 class="chart-title">Spend by Category</h3>
-              <canvas id="chart-donut"></canvas>
-            </div>
-          </div>
-          <div class="card chart-card">
-            <div class="card-body">
-              <h3 class="chart-title">Top Categories by Amount</h3>
-              <canvas id="chart-bar"></canvas>
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="table-header">
-            <h2>Transactions</h2>
-            <div class="table-actions">
-              <div id="save-status" class="save-status hidden"></div>
-              <button class="btn btn-save" id="save-btn" onclick="saveTransactions()">&#8659; Save to Database</button>
-              <button class="btn btn-primary" onclick="downloadCSV()">&#8595; Download CSV</button>
-            </div>
-          </div>
-          <div class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Sale Date</th><th>Post Date</th><th>Description</th>
-                  <th>Amount</th><th>Category</th><th>Cardholder</th>
-                </tr>
-              </thead>
-              <tbody id="table-body"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="table-header">
-            <h2>Vendor Analysis</h2>
-            <div class="table-actions">
-              <label class="filter-label" for="vendor-filter-select">Vendor:</label>
-              <select id="vendor-filter-select" class="category-select" style="min-width:200px" onchange="applyVendorFilter('vendor-body','vendor-filter-select')">
-                <option value="">All Vendors</option>
-              </select>
-            </div>
-          </div>
-          <div class="card-body" style="padding-bottom:0.75rem">
-            <h3 class="chart-title">Top 10 Vendors</h3>
-            <canvas id="chart-vendor" style="max-height:260px"></canvas>
-          </div>
-          <div class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Vendor</th><th>Transactions</th><th>Total Spend</th><th>Avg. Transaction</th>
-                </tr>
-              </thead>
-              <tbody id="vendor-body"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="card retrain-card">
-          <div class="table-header">
-            <div>
-              <h2>Retrain Model</h2>
-              <p class="retrain-hint">Correct the categories above, then click Retrain to improve future classifications.</p>
-            </div>
-            <button class="btn btn-retrain" id="retrain-btn" onclick="retrainModel()">&#8635; Retrain Model</button>
-          </div>
-          <div class="retrain-result hidden" id="retrain-result"></div>
-        </div>
-
-      </div>
-    </div>
-
-    <!-- ===== DASHBOARD VIEW ===== -->
-    <div id="view-dashboard" class="hidden">
-
-      <div class="card">
-        <div class="table-header">
-          <h2>Dashboard</h2>
-          <div class="table-actions">
-            <label class="filter-label" for="dash-date-from">From:</label>
-            <input type="month" id="dash-date-from" class="month-input" onchange="loadDashboard()" />
-            <label class="filter-label" for="dash-date-to">To:</label>
-            <input type="month" id="dash-date-to" class="month-input" onchange="loadDashboard()" />
-            <button class="btn btn-ghost btn-sm" onclick="resetDashboardFilter()">Reset</button>
-          </div>
-        </div>
-      </div>
-
-      <div id="dash-empty" class="hidden">
-        <div class="card card-body" style="text-align:center;color:#64748b;padding:3rem">
-          No saved data yet &mdash; upload and save PDFs to see your dashboard here.
-        </div>
-      </div>
-
-      <div id="dash-content" class="hidden">
-
-        <div class="stats-grid" id="dash-stats-grid"></div>
-
-        <div class="charts-grid">
-          <div class="card chart-card">
-            <div class="card-body">
-              <h3 class="chart-title">Spend by Category</h3>
-              <canvas id="dash-chart-donut"></canvas>
-            </div>
-          </div>
-          <div class="card chart-card">
-            <div class="card-body">
-              <h3 class="chart-title">Top Categories by Amount</h3>
-              <canvas id="dash-chart-bar"></canvas>
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="table-header">
-            <h2>Vendor Analysis</h2>
-            <div class="table-actions">
-              <label class="filter-label" for="dash-vendor-filter-select">Vendor:</label>
-              <select id="dash-vendor-filter-select" class="category-select" style="min-width:200px" onchange="applyVendorFilter('dash-vendor-body','dash-vendor-filter-select')">
-                <option value="">All Vendors</option>
-              </select>
-            </div>
-          </div>
-          <div class="card-body" style="padding-bottom:0.75rem">
-            <h3 class="chart-title">Top 10 Vendors</h3>
-            <canvas id="dash-chart-vendor" style="max-height:260px"></canvas>
-          </div>
-          <div class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Vendor</th><th>Transactions</th><th>Total Spend</th><th>Avg. Transaction</th>
-                </tr>
-              </thead>
-              <tbody id="dash-vendor-body"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="card retrain-card">
-          <div class="table-header">
-            <div>
-              <h2>Retrain Classification Model</h2>
-              <p class="retrain-hint">Retrain the model using all labeled transactions saved in the database.</p>
-            </div>
-            <button class="btn btn-retrain" id="db-retrain-btn" onclick="retrainFromDatabase()">&#8635; Retrain from Database</button>
-          </div>
-          <div class="db-retrain-stats" id="db-retrain-stats"></div>
-          <div class="retrain-result hidden" id="db-retrain-result"></div>
-          <div class="db-retrain-guidance">
-            <p class="db-retrain-guidance-title">When should you retrain?</p>
-            <ul>
-              <li><strong>50+ new transactions</strong> have been saved since the last retrain &mdash; more data means a better model.</li>
-              <li>You are <strong>manually correcting more than ~10&ndash;15% of classifications</strong> &mdash; this is the clearest sign the model is drifting.</li>
-              <li>You have <strong>added new expense types or vendors</strong> the model has not seen before.</li>
-              <li>As a backstop: <strong>every 6 months</strong> if none of the above have applied.</li>
-            </ul>
-          </div>
-        </div>
-
-      </div>
-
-      <div id="dash-loading" class="hidden" style="padding:3rem;text-align:center">
-        <div class="spinner" style="margin:0 auto 0.75rem"></div>
-        <p style="color:#64748b;font-size:0.9rem">Loading dashboard&hellip;</p>
-      </div>
-
-    </div>
-
-    <!-- ===== HISTORY VIEW ===== -->
-    <div id="view-history" class="hidden">
-
-      <!-- Monthly line chart -->
-      <div class="card">
-        <div class="table-header">
-          <h2>Monthly Spending Trend</h2>
-          <div class="table-actions">
-            <label class="filter-label" for="date-from">From:</label>
-            <input type="month" id="date-from" class="month-input" onchange="updateAnalyticsChart()" />
-            <label class="filter-label" for="date-to">To:</label>
-            <input type="month" id="date-to" class="month-input" onchange="updateAnalyticsChart()" />
-            <label class="filter-label" for="category-filter">Category:</label>
-            <select id="category-filter" class="category-select" style="min-width:200px" onchange="updateAnalyticsChart()">
-              <option value="__all__">Top Categories</option>
-              <option value="__total__">Total Spend</option>
-            </select>
-          </div>
-        </div>
-        <div class="card-body" style="padding-top:0.25rem">
-          <div id="analytics-empty" class="analytics-empty hidden">
-            No saved data yet &mdash; upload and save PDFs to see trends here.
-          </div>
-          <canvas id="chart-line" style="max-height:340px"></canvas>
-        </div>
-      </div>
-
-      <!-- Batch list -->
-      <div class="card">
-        <div class="table-header">
-          <h2>Saved Transaction Batches</h2>
-          <button class="btn btn-primary" onclick="loadHistory()">&#8635; Refresh</button>
-        </div>
-        <div id="history-loading" class="hidden" style="padding:2rem;text-align:center">
-          <div class="spinner" style="margin:0 auto 0.75rem"></div>
-          <p style="color:#64748b;font-size:0.9rem">Loading history&hellip;</p>
-        </div>
-        <div id="history-empty" class="hidden" style="padding:2rem 1.5rem;color:#64748b;font-size:0.9rem">
-          No saved batches yet. Upload PDFs and click <strong>Save to Database</strong>.
-        </div>
-        <div class="table-wrapper" id="history-table-wrap" style="display:none">
-          <table>
-            <thead>
-              <tr>
-                <th>Date Saved</th><th>Filename</th><th>Transactions</th><th>Uploaded By</th><th></th>
-              </tr>
-            </thead>
-            <tbody id="history-body"></tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Expanded batch transactions -->
-      <div id="history-batch-detail" class="hidden">
-        <div class="card">
-          <div class="table-header">
-            <div>
-              <h2 id="batch-detail-title">Transactions</h2>
-              <p class="retrain-hint" id="batch-detail-sub"></p>
-            </div>
-            <div class="table-actions">
-              <button class="btn btn-primary" onclick="downloadBatchCSV()">&#8595; Download CSV</button>
-              <button class="btn btn-ghost" onclick="closeBatchDetail()">&#10005; Close</button>
-            </div>
-          </div>
-          <div class="ch-rename-body" id="batch-ch-rename"></div>
-          <div class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Sale Date</th><th>Post Date</th><th>Description</th>
-                  <th>Amount</th><th>Category</th><th>Cardholder</th><th>Notes</th>
-                </tr>
-              </thead>
-              <tbody id="batch-detail-body"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-    </div>
-
-  </main>
 
   <script src="/static/app.js"></script>
 </body>

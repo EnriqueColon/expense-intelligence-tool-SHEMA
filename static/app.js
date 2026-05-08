@@ -13,11 +13,14 @@ function logout() {
 }
 
 // --- Tab navigation ---
+const TAB_TITLES = { upload: 'Upload', dashboard: 'Dashboard', history: 'Transaction History' };
 function switchTab(tab) {
   ['upload', 'dashboard', 'history'].forEach(t => {
     document.getElementById('view-' + t).classList.toggle('hidden', tab !== t);
     document.getElementById('tab-' + t).classList.toggle('active', tab === t);
   });
+  const titleEl = document.getElementById('topbar-title');
+  if (titleEl) titleEl.textContent = TAB_TITLES[tab] || '';
   if (tab === 'history')   loadHistory();
   if (tab === 'dashboard') loadDashboard();
 }
