@@ -2,6 +2,55 @@ import fitz
 import re
 import pandas as pd
 
+# ---------------------------------------------------------------------------
+# Billing-period / date helpers
+# ---------------------------------------------------------------------------
+
+# Matches "MM/DD/YY-MM/DD/YY" or "MM/DD/YYYY - MM/DD/YYYY" (dash or en-dash)
+_BILLING_PERIOD_RE = re.compile(
+    r'(\d{1,2})/(\d{1,2})/(\d{2,4})\s*[-\u2013]\s*(\d{1,2})/(\d{1,2})/(\d{2,4})'
+)
+
+
+def extract_statement_period(lines: list) -> tuple:
+    """Scan PDF lines for the billing-period header (e.g. '06/12/24-07/09/24').
+
+    Returns ``(statement_period, start_year, end_year, start_month, end_month)``
+    where *statement_period* is ``'YYYY-MM'`` of the billing-end date.
+    All values are ``None`` when no pattern is found.
+    """
+    for line in lines:
+        m = _BILLING_PERIOD_RE.search(line)
+        if m:
+            sm, _sd, sy, em, _ed, ey = m.groups()
+            sy, ey = int(sy), int(ey)
+            sm, em = int(sm), int(em)
+            if sy < 100:
+                sy += 2000
+            if ey < 100:
+                ey += 2000
+            return f"{ey}-{em:02d}", sy, ey, sm, em
+    return None, None, None, None, None
+
+
+def _resolve_year(txn_month: int, start_year: int, end_year: int, start_month: int) -> int:
+    """Return the 4-digit year for a transaction month given the billing period.
+
+    Handles the (rare) case where a billing period spans a calendar-year
+    boundary (e.g. Dec → Jan).
+    """
+    if start_year == end_year:
+        return start_year
+    return start_year if txn_month >= start_month else end_year
+
+
+def _to_full_date(month_day: str, year: int) -> str:
+    """Convert ``'MM/DD'`` to ``'YYYY-MM-DD'``.  Returns the original string on failure."""
+    parts = month_day.split('/')
+    if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+        return f"{year}-{int(parts[0]):02d}-{int(parts[1]):02d}"
+    return month_day
+
 _SKIP_WORDS = {
     # Statement / financial terms
     'ACCOUNT', 'SUMMARY', 'STATEMENT', 'CLOSING', 'CREDIT', 'PAYMENT',
@@ -120,7 +169,25 @@ def extract_transactions_from_text(lines):
     (e.g. account-level ONLINE PAYMENT entries at the top of the statement)
     are attributed to the first confirmed cardholder rather than "Primary",
     since on a multi-cardholder business card all charges belong to someone.
+
+    Transaction dates are stored as ``YYYY-MM-DD`` when a billing period can
+    be detected in the document; otherwise they fall back to the raw ``MM/DD``
+    string from the PDF.
     """
+    # Extract billing period so we can attach the correct year to each date.
+    _stmt_period, start_year, end_year, start_month, _end_month = extract_statement_period(lines)
+
+    def resolve_date(raw: str) -> str:
+        """Convert 'MM/DD' → 'YYYY-MM-DD' when year info is available."""
+        if start_year is None:
+            return raw
+        parts = raw.split('/')
+        if len(parts) == 2 and parts[0].isdigit():
+            txn_month = int(parts[0])
+            year = _resolve_year(txn_month, start_year, end_year, start_month)
+            return _to_full_date(raw, year)
+        return raw
+
     sections = _prescan_cardholders(lines)
     confirmed_cardholders = {name for _, name in sections}
 
@@ -179,8 +246,8 @@ def extract_transactions_from_text(lines):
                       .strip()
             )
             transactions.append({
-                "Sale Date": line_1,
-                "Post Date": line_1,
+                "Sale Date": resolve_date(line_1),
+                "Post Date": resolve_date(line_1),
                 "Description": line_2,
                 "Amount": amount,
                 "Cardholder": current_cardholder,
@@ -202,8 +269,8 @@ def extract_transactions_from_text(lines):
                           .strip()
                 )
                 transactions.append({
-                    "Sale Date": line_1,
-                    "Post Date": line_2,
+                    "Sale Date": resolve_date(line_1),
+                    "Post Date": resolve_date(line_2),
                     "Description": line_3,
                     "Amount": amount,
                     "Cardholder": current_cardholder,

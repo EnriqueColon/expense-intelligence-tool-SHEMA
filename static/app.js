@@ -26,8 +26,9 @@ function switchTab(tab) {
 }
 
 // --- State ---
-let transactions  = [];
-let currentFile   = '';
+let transactions        = [];
+let currentFile         = '';
+let currentStmtPeriod   = null;   // 'YYYY-MM' extracted from the last uploaded PDF
 let donutChart    = null;
 let barChart      = null;
 let activeBatchId = null;
@@ -115,6 +116,8 @@ async function handleFiles(fileList) {
       const data = await res.json();
       allTransactions.push(...(data.transactions || []));
       fileNames.push(file.name);
+      // Capture the statement period from the last successfully parsed file
+      if (data.statement_period) currentStmtPeriod = data.statement_period;
     } catch (err) {
       errors.push(file.name + ': ' + err.message);
     }
@@ -315,7 +318,7 @@ async function saveTransactions() {
     const res = await fetch('/api/transactions/save', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: currentFile, transactions })
+      body: JSON.stringify({ filename: currentFile, transactions, statement_period: currentStmtPeriod })
     });
     if (res.status === 401) { logout(); return; }
     const data = await res.json();
@@ -707,9 +710,14 @@ async function loadHistory() {
         const tr  = document.createElement('tr');
         const dt  = new Date(b.created_at);
         const dateStr = dt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const sp = b.statement_period || '';
         tr.innerHTML =
           '<td>' + dateStr + '</td>' +
           '<td class="desc" title="' + esc(b.filename) + '">' + esc(b.filename || '—') + '</td>' +
+          '<td style="white-space:nowrap">' +
+            '<input type="month" class="month-input" value="' + sp + '" style="width:140px" ' +
+              'onchange="updateStatementPeriod(' + b.id + ',this)" title="Statement billing period" />' +
+          '</td>' +
           '<td style="text-align:center">' + b.transaction_count + '</td>' +
           '<td>' + esc(b.uploaded_by) + '</td>' +
           '<td class="history-actions">' +
@@ -743,6 +751,27 @@ async function deleteBatch(batchId, btnEl) {
   } catch (err) {
     alert('Delete failed: ' + err.message);
     btnEl.disabled = false;
+  }
+}
+
+async function updateStatementPeriod(batchId, inputEl) {
+  const val = inputEl.value;  // 'YYYY-MM' or ''
+  if (!val) return;
+  const orig = inputEl.dataset.orig || inputEl.value;
+  inputEl.dataset.orig = val;
+  try {
+    const res = await fetch('/api/transactions/batch/' + batchId + '/statement-period', {
+      method: 'PATCH',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ statement_period: val })
+    });
+    if (res.status === 401) { logout(); return; }
+    if (!res.ok) throw new Error('Update failed');
+    // Refresh the analytics chart silently if history tab is active
+    loadAnalytics();
+  } catch (err) {
+    alert('Could not update statement period: ' + err.message);
+    inputEl.value = orig;
   }
 }
 

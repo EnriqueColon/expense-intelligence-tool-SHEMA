@@ -26,7 +26,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
-from app.pdf_parser import parse_pdf_text, extract_transactions_from_text
+from app.pdf_parser import parse_pdf_text, extract_transactions_from_text, extract_statement_period
 
 # --- Config ---
 SECRET_KEY    = os.environ.get("SECRET_KEY", "shema-intelligence-secret-2025")
@@ -98,7 +98,35 @@ def init_db():
     except Exception as e:
         print(f"[DB] Init failed: {e}")
 
+
+def migrate_db():
+    """Add statement_period column to transaction_batches (idempotent)."""
+    if not DATABASE_URL:
+        return
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        # Add column if missing
+        cur.execute("""
+            ALTER TABLE transaction_batches
+            ADD COLUMN IF NOT EXISTS statement_period VARCHAR(7) DEFAULT NULL
+        """)
+        # Back-fill existing rows so they keep their current behaviour
+        # (upload-date month) rather than showing NULL in the chart.
+        cur.execute("""
+            UPDATE transaction_batches
+            SET statement_period = TO_CHAR(created_at, 'YYYY-MM')
+            WHERE statement_period IS NULL
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("[DB] Migration: statement_period column ready")
+    except Exception as e:
+        print(f"[DB] Migration failed: {e}")
+
 init_db()
+migrate_db()
 
 # --- Blob Storage helpers ---
 BLOB_FILENAME = "expense_classifier.pkl"
@@ -170,6 +198,7 @@ class RetrainRequest(BaseModel):
 class SaveTransactionsRequest(BaseModel):
     filename: str = ""
     transactions: list
+    statement_period: Optional[str] = None   # 'YYYY-MM' of the billing-end month
 
 class UpdateTransactionRequest(BaseModel):
     category: Optional[str] = None
@@ -216,8 +245,9 @@ async def upload_pdf(file: UploadFile = File(...), username: str = Depends(verif
     try:
         lines = parse_pdf_text(io.BytesIO(contents))
         df = extract_transactions_from_text(lines)
+        stmt_period, *_ = extract_statement_period(lines)
         if df.empty:
-            return {"transactions": [], "count": 0, "username": username}
+            return {"transactions": [], "count": 0, "username": username, "statement_period": stmt_period}
         if pipeline is not None:
             X = df[["Description", "Amount"]].copy()
             X["Amount"] = pd.to_numeric(X["Amount"], errors="coerce").fillna(0)
@@ -228,7 +258,7 @@ async def upload_pdf(file: UploadFile = File(...), username: str = Depends(verif
         if "Cardholder" not in df.columns:
             df["Cardholder"] = "Primary"
         records = df.fillna("").to_dict(orient="records")
-        return {"transactions": records, "count": len(records), "username": username}
+        return {"transactions": records, "count": len(records), "username": username, "statement_period": stmt_period}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -323,8 +353,8 @@ def save_transactions(body: SaveTransactionsRequest, username: str = Depends(ver
     try:
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO transaction_batches (uploaded_by, filename, transaction_count) VALUES (%s, %s, %s) RETURNING id",
-            (username, body.filename, len(body.transactions))
+            "INSERT INTO transaction_batches (uploaded_by, filename, transaction_count, statement_period) VALUES (%s, %s, %s, %s) RETURNING id",
+            (username, body.filename, len(body.transactions), body.statement_period)
         )
         batch_id = cur.fetchone()[0]
         for txn in body.transactions:
@@ -357,7 +387,7 @@ def get_history(username: str = Depends(verify_token)):
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(
-            "SELECT id, uploaded_by, filename, created_at, transaction_count FROM transaction_batches ORDER BY created_at DESC LIMIT 100"
+            "SELECT id, uploaded_by, filename, created_at, transaction_count, statement_period FROM transaction_batches ORDER BY created_at DESC LIMIT 100"
         )
         rows = [_serialize(dict(r)) for r in cur.fetchall()]
         return {"batches": rows}
@@ -435,6 +465,34 @@ def rename_cardholder_in_batch(
     finally:
         conn.close()
 
+class UpdateStatementPeriodRequest(BaseModel):
+    statement_period: str   # 'YYYY-MM'
+
+@app.patch("/api/transactions/batch/{batch_id}/statement-period")
+def update_statement_period(
+    batch_id: int,
+    body: UpdateStatementPeriodRequest,
+    username: str = Depends(verify_token)
+):
+    """Allow users to correct the statement period for an existing batch."""
+    import re as _re
+    if not _re.match(r'^\d{4}-\d{2}$', body.statement_period):
+        raise HTTPException(status_code=400, detail="statement_period must be YYYY-MM format")
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE transaction_batches SET statement_period = %s WHERE id = %s",
+            (body.statement_period, batch_id)
+        )
+        conn.commit()
+        return {"success": True}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 @app.delete("/api/transactions/batch/{batch_id}")
 def delete_batch(batch_id: int, username: str = Depends(verify_token)):
     conn = get_db()
@@ -456,13 +514,13 @@ def get_analytics(username: str = Depends(verify_token)):
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
             SELECT
-                TO_CHAR(tb.created_at, 'YYYY-MM') AS month,
+                COALESCE(tb.statement_period, TO_CHAR(tb.created_at, 'YYYY-MM')) AS month,
                 t.category,
                 ROUND(SUM(t.amount)::numeric, 2)::float AS total
             FROM transactions t
             JOIN transaction_batches tb ON t.batch_id = tb.id
             WHERE t.amount > 0
-            GROUP BY TO_CHAR(tb.created_at, 'YYYY-MM'), t.category
+            GROUP BY COALESCE(tb.statement_period, TO_CHAR(tb.created_at, 'YYYY-MM')), t.category
             ORDER BY month, t.category
         """)
         return {"data": [dict(r) for r in cur.fetchall()]}
@@ -482,13 +540,13 @@ def get_dashboard(
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        # Date filter (applied to all data queries)
+        # Date filter uses statement_period when available, falls back to created_at
         date_clauses, date_params = [], []
         if start:
-            date_clauses.append("TO_CHAR(tb.created_at, 'YYYY-MM') >= %s")
+            date_clauses.append("COALESCE(tb.statement_period, TO_CHAR(tb.created_at, 'YYYY-MM')) >= %s")
             date_params.append(start)
         if end:
-            date_clauses.append("TO_CHAR(tb.created_at, 'YYYY-MM') <= %s")
+            date_clauses.append("COALESCE(tb.statement_period, TO_CHAR(tb.created_at, 'YYYY-MM')) <= %s")
             date_params.append(end)
         date_where = ("AND " + " AND ".join(date_clauses)) if date_clauses else ""
 
@@ -508,8 +566,8 @@ def get_dashboard(
                 COUNT(DISTINCT t.batch_id)::int                                                AS total_batches,
                 ROUND(SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END)::numeric, 2)::float AS total_charges,
                 ROUND(SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount) ELSE 0 END)::numeric, 2)::float AS total_credits,
-                TO_CHAR(MIN(tb.created_at), 'YYYY-MM') AS min_month,
-                TO_CHAR(MAX(tb.created_at), 'YYYY-MM') AS max_month
+                MIN(COALESCE(tb.statement_period, TO_CHAR(tb.created_at, 'YYYY-MM'))) AS min_month,
+                MAX(COALESCE(tb.statement_period, TO_CHAR(tb.created_at, 'YYYY-MM'))) AS max_month
             FROM transactions t
             JOIN transaction_batches tb ON t.batch_id = tb.id
             WHERE 1=1 {full_where}
