@@ -548,6 +548,7 @@ async function loadAnalytics() {
     });
     if (res.status === 401) { logout(); return; }
     const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Analytics API error');
     analyticsData = data.data || [];
 
     // Populate category dropdown (keep first two fixed options)

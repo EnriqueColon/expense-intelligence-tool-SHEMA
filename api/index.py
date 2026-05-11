@@ -68,12 +68,24 @@ def init_db():
         cur = conn.cursor()
         cur.execute("""
             CREATE TABLE IF NOT EXISTS transaction_batches (
-                id               SERIAL PRIMARY KEY,
-                uploaded_by      VARCHAR(255) NOT NULL,
-                filename         VARCHAR(255) DEFAULT '',
-                created_at       TIMESTAMPTZ  DEFAULT NOW(),
-                transaction_count INTEGER     DEFAULT 0
+                id                SERIAL PRIMARY KEY,
+                uploaded_by       VARCHAR(255) NOT NULL,
+                filename          VARCHAR(255) DEFAULT '',
+                created_at        TIMESTAMPTZ  DEFAULT NOW(),
+                transaction_count INTEGER      DEFAULT 0,
+                statement_period  VARCHAR(7)   DEFAULT NULL
             )
+        """)
+        # Ensure statement_period exists on pre-existing installs
+        cur.execute("""
+            ALTER TABLE transaction_batches
+            ADD COLUMN IF NOT EXISTS statement_period VARCHAR(7) DEFAULT NULL
+        """)
+        # Back-fill: rows still NULL get the upload-month as a safe fallback
+        cur.execute("""
+            UPDATE transaction_batches
+            SET statement_period = TO_CHAR(created_at, 'YYYY-MM')
+            WHERE statement_period IS NULL
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS transactions (
@@ -98,35 +110,7 @@ def init_db():
     except Exception as e:
         print(f"[DB] Init failed: {e}")
 
-
-def migrate_db():
-    """Add statement_period column to transaction_batches (idempotent)."""
-    if not DATABASE_URL:
-        return
-    try:
-        conn = psycopg2.connect(DATABASE_URL)
-        cur = conn.cursor()
-        # Add column if missing
-        cur.execute("""
-            ALTER TABLE transaction_batches
-            ADD COLUMN IF NOT EXISTS statement_period VARCHAR(7) DEFAULT NULL
-        """)
-        # Back-fill existing rows so they keep their current behaviour
-        # (upload-date month) rather than showing NULL in the chart.
-        cur.execute("""
-            UPDATE transaction_batches
-            SET statement_period = TO_CHAR(created_at, 'YYYY-MM')
-            WHERE statement_period IS NULL
-        """)
-        conn.commit()
-        cur.close()
-        conn.close()
-        print("[DB] Migration: statement_period column ready")
-    except Exception as e:
-        print(f"[DB] Migration failed: {e}")
-
 init_db()
-migrate_db()
 
 # --- Blob Storage helpers ---
 BLOB_FILENAME = "expense_classifier.pkl"
