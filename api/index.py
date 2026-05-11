@@ -37,6 +37,31 @@ DATABASE_URL  = os.environ.get("POSTGRES_URL", "")
 ALGORITHM     = "HS256"
 TOKEN_HOURS   = 8
 
+# --- Category normalisation ---
+# Maps every known variant → the single canonical label used in the UI and DB.
+_CATEGORY_MAP: dict[str, str] = {
+    "dues and subscriptions":              "Dues & Subscriptions",
+    "dues & subscriptions":                "Dues & Subscriptions",
+    "business meals & entertainment":      "Meals & Entertainment",
+    "business meals and entertainment":    "Meals & Entertainment",
+    "meals and entertainment":             "Meals & Entertainment",
+    "meals & entertainment":               "Meals & Entertainment",
+    "postage and delivery":                "Postage & Shipping",
+    "postage and shipping":                "Postage & Shipping",
+    "postage & shipping":                  "Postage & Shipping",
+    "legal & professional":                "Professional Fees",
+    "legal and professional":              "Professional Fees",
+    "professional fees":                   "Professional Fees",
+    "telephone/internet/web":              "Computer & Internet",
+    "telephone & internet":                "Computer & Internet",
+    "telephone and internet":              "Computer & Internet",
+    "computer & internet":                 "Computer & Internet",
+}
+
+def normalize_category(cat: str) -> str:
+    """Return the canonical category label for *cat*, or *cat* unchanged."""
+    return _CATEGORY_MAP.get((cat or "").strip().lower(), cat)
+
 # --- App ---
 app = FastAPI(title="SHEMA Expense Intelligence Tool")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -87,6 +112,12 @@ def init_db():
             SET statement_period = TO_CHAR(created_at, 'YYYY-MM')
             WHERE statement_period IS NULL
         """)
+        # Normalise inconsistent category labels in existing transaction rows
+        for variant, canonical in _CATEGORY_MAP.items():
+            cur.execute(
+                "UPDATE transactions SET category = %s WHERE LOWER(category) = %s AND category != %s",
+                (canonical, variant, canonical)
+            )
         cur.execute("""
             CREATE TABLE IF NOT EXISTS transactions (
                 id           SERIAL PRIMARY KEY,
@@ -235,7 +266,7 @@ async def upload_pdf(file: UploadFile = File(...), username: str = Depends(verif
         if pipeline is not None:
             X = df[["Description", "Amount"]].copy()
             X["Amount"] = pd.to_numeric(X["Amount"], errors="coerce").fillna(0)
-            df["Category"] = pipeline.predict(X)
+            df["Category"] = [normalize_category(c) for c in pipeline.predict(X)]
         else:
             df["Category"] = "Unclassified"
         df["Processed By"] = username
@@ -352,7 +383,7 @@ def save_transactions(body: SaveTransactionsRequest, username: str = Depends(ver
                     str(txn.get("Post Date", "")),
                     str(txn.get("Description", "")),
                     float(txn.get("Amount", 0) or 0),
-                    str(txn.get("Category", "Unclassified")),
+                    normalize_category(str(txn.get("Category", "Unclassified"))),
                     str(txn.get("Cardholder", "Primary")),
                     str(txn.get("Processed By", username)),
                 )

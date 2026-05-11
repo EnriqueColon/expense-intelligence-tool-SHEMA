@@ -40,10 +40,10 @@ let dashBarChart    = null;
 let dashVendorChart = null;
 
 const CATEGORIES = [
-  'Advertising & Marketing', 'Bank Charges & Fees', 'Business Meals & Entertainment',
-  'Computer & Internet', 'Dues and Subscriptions', 'Equipment & Supplies',
-  'Insurance', 'Legal & Professional', 'Meals & Entertainment',
-  'Office Supplies', 'Other Expense', 'Postage & Shipping',
+  'Advertising & Marketing', 'Bank Charges & Fees', 'Computer & Internet',
+  'Dues & Subscriptions', 'Equipment & Supplies', 'Insurance',
+  'Meals & Entertainment', 'Office Supplies', 'Other Expense',
+  'Payment', 'Postage & Shipping', 'Professional Fees',
   'Rent', 'Repairs & Maintenance', 'Software', 'Travel',
   'Utilities', 'Vehicle', 'Unclassified'
 ];
