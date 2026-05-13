@@ -1033,7 +1033,8 @@ function renderCategories() {
     row.innerHTML =
       '<span class="cat-badge">' + esc(cat) + '</span>' +
       '<input class="cat-rename-input" type="text" value="' + esc(cat) + '" id="cat-input-' + i + '"' + (isUnclassified ? ' disabled title="This category cannot be renamed."' : '') + ' />' +
-      '<button class="btn btn-sm btn-ghost" onclick="promptRenameCategory(' + i + ')"' + (isUnclassified ? ' disabled' : '') + '>Rename</button>';
+      '<button class="btn btn-sm btn-ghost" onclick="promptRenameCategory(' + i + ')"' + (isUnclassified ? ' disabled' : '') + '>Rename</button>' +
+      '<button class="btn btn-sm btn-danger" onclick="promptDeleteCategory(' + i + ')"' + (isUnclassified ? ' disabled title="This category cannot be deleted."' : '') + '>Delete</button>';
     list.appendChild(row);
   });
 }
@@ -1067,6 +1068,15 @@ function promptAddCategory() {
     saveCategories();
     renderCategories();
     if (input) input.value = '';
+  });
+}
+
+function promptDeleteCategory(index) {
+  if (CATEGORIES[index] === 'Unclassified') return;
+  showCategoryWarning(() => {
+    CATEGORIES.splice(index, 1);
+    saveCategories();
+    renderCategories();
   });
 }
 
