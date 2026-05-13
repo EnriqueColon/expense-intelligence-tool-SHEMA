@@ -52,9 +52,9 @@ _CATEGORY_MAP: dict[str, str] = {
     "legal & professional":                "Professional Fees",
     "legal and professional":              "Professional Fees",
     "professional fees":                   "Professional Fees",
-    "telephone/internet/web":              "Computer & Internet",
-    "telephone & internet":                "Computer & Internet",
-    "telephone and internet":              "Computer & Internet",
+    "telephone/internet/web":              "Telephone/Internet/Web",
+    "telephone & internet":                "Telephone/Internet/Web",
+    "telephone and internet":              "Telephone/Internet/Web",
     "computer & internet":                 "Computer & Internet",
 }
 

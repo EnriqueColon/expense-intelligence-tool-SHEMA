@@ -36,6 +36,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           Transaction History
         </button>
+        <button class="nav-item" id="tab-categories" onclick="switchTab('categories')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+          Manage Categories
+        </button>
       </nav>
 
       <div class="sidebar-footer">
@@ -349,7 +353,54 @@
 
         </div>
 
+        <!-- ===== CATEGORIES VIEW ===== -->
+        <div id="view-categories" class="hidden">
+
+          <div class="card">
+            <div class="table-header">
+              <div>
+                <h2>Manage Categories</h2>
+                <p class="retrain-hint">Add or rename expense categories. Changes apply to future uploads and classification dropdowns.</p>
+              </div>
+            </div>
+            <div class="card-body">
+              <div id="cat-list" class="cat-list"></div>
+              <div class="cat-add-row">
+                <input class="cat-rename-input" type="text" id="cat-new-input" placeholder="New category name&hellip;" />
+                <button class="btn btn-primary btn-sm" onclick="promptAddCategory()">+ Add Category</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
       </main>
+    </div>
+  </div>
+
+  <!-- ===== CATEGORY WARNING MODAL ===== -->
+  <div id="category-warning-modal" class="modal-overlay hidden">
+    <div class="modal-dialog">
+      <div class="modal-warning-icon">&#9888;</div>
+      <h2 class="modal-title">Before You Make Changes to Categories</h2>
+      <p class="modal-body-text">The current classification model (v1) was trained on a large volume of historical transaction data. The categories it learned are the foundation of its accuracy.</p>
+      <p class="modal-body-text" style="margin-top:10px">Please keep the following in mind:</p>
+      <ul class="modal-list">
+        <li><strong>Adding or renaming categories</strong> will affect how future transactions are classified. Transactions that previously fell into an existing category may need to be manually reclassified.</li>
+        <li><strong>Do not retrain the model</strong> until you have collected enough new labeled data to ensure accuracy. Retraining on too little data will reduce model performance.</li>
+      </ul>
+      <div class="modal-retrain-criteria">
+        <p class="modal-criteria-title">Recommended minimum data before retraining:</p>
+        <ul>
+          <li>At least <strong>200 labeled transactions</strong> per new or changed category</li>
+          <li>A minimum of <strong>500 total labeled transactions</strong> across all categories</li>
+          <li>At least <strong>3 months</strong> of post-change transaction history</li>
+        </ul>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="dismissCategoryWarning()">Cancel</button>
+        <button class="btn btn-primary" onclick="confirmCategoryWarning()">I Understand &mdash; Proceed</button>
+      </div>
     </div>
   </div>
 

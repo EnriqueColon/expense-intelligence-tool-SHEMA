@@ -13,16 +13,17 @@ function logout() {
 }
 
 // --- Tab navigation ---
-const TAB_TITLES = { upload: 'Upload', dashboard: 'Dashboard', history: 'Transaction History' };
+const TAB_TITLES = { upload: 'Upload', dashboard: 'Dashboard', history: 'Transaction History', categories: 'Manage Categories' };
 function switchTab(tab) {
-  ['upload', 'dashboard', 'history'].forEach(t => {
+  ['upload', 'dashboard', 'history', 'categories'].forEach(t => {
     document.getElementById('view-' + t).classList.toggle('hidden', tab !== t);
     document.getElementById('tab-' + t).classList.toggle('active', tab === t);
   });
   const titleEl = document.getElementById('topbar-title');
   if (titleEl) titleEl.textContent = TAB_TITLES[tab] || '';
-  if (tab === 'history')   loadHistory();
-  if (tab === 'dashboard') loadDashboard();
+  if (tab === 'history')    loadHistory();
+  if (tab === 'dashboard')  loadDashboard();
+  if (tab === 'categories') renderCategories();
 }
 
 // --- State ---
@@ -44,8 +45,8 @@ const CATEGORIES = [
   'Dues & Subscriptions', 'Equipment & Supplies', 'Insurance',
   'Meals & Entertainment', 'Office Supplies', 'Other Expense',
   'Payment', 'Postage & Shipping', 'Professional Fees',
-  'Rent', 'Repairs & Maintenance', 'Software', 'Travel',
-  'Utilities', 'Vehicle', 'Unclassified'
+  'Rent', 'Repairs & Maintenance', 'Software', 'Telephone/Internet/Web',
+  'Travel', 'Utilities', 'Vehicle', 'Unclassified'
 ];
 
 const CHART_COLORS = [
@@ -980,6 +981,93 @@ const VENDOR_MAP = [
   [/openai/i,                              'OpenAI'],
   [/chatgpt/i,                             'ChatGPT'],
 ];
+
+// --- Categories Management ---
+const CATEGORIES_STORAGE_KEY = 'shema_categories';
+
+function loadStoredCategories() {
+  const stored = localStorage.getItem(CATEGORIES_STORAGE_KEY);
+  if (!stored) return;
+  try {
+    const parsed = JSON.parse(stored);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      CATEGORIES.length = 0;
+      parsed.forEach(c => CATEGORIES.push(c));
+    }
+  } catch (e) {}
+}
+
+function saveCategories() {
+  localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(CATEGORIES));
+}
+
+loadStoredCategories();
+
+let _categoryWarningCallback = null;
+
+function showCategoryWarning(onConfirm) {
+  _categoryWarningCallback = onConfirm;
+  document.getElementById('category-warning-modal').classList.remove('hidden');
+}
+
+function dismissCategoryWarning() {
+  document.getElementById('category-warning-modal').classList.add('hidden');
+  _categoryWarningCallback = null;
+}
+
+function confirmCategoryWarning() {
+  document.getElementById('category-warning-modal').classList.add('hidden');
+  if (_categoryWarningCallback) _categoryWarningCallback();
+  _categoryWarningCallback = null;
+}
+
+function renderCategories() {
+  const list = document.getElementById('cat-list');
+  if (!list) return;
+  list.innerHTML = '';
+  CATEGORIES.forEach((cat, i) => {
+    const isUnclassified = cat === 'Unclassified';
+    const row = document.createElement('div');
+    row.className = 'cat-row';
+    row.innerHTML =
+      '<span class="cat-badge">' + esc(cat) + '</span>' +
+      '<input class="cat-rename-input" type="text" value="' + esc(cat) + '" id="cat-input-' + i + '"' + (isUnclassified ? ' disabled title="This category cannot be renamed."' : '') + ' />' +
+      '<button class="btn btn-sm btn-ghost" onclick="promptRenameCategory(' + i + ')"' + (isUnclassified ? ' disabled' : '') + '>Rename</button>';
+    list.appendChild(row);
+  });
+}
+
+function promptRenameCategory(index) {
+  const input = document.getElementById('cat-input-' + index);
+  const newName = (input ? input.value : '').trim();
+  if (!newName || newName === CATEGORIES[index]) return;
+  if (CATEGORIES.some((c, i) => i !== index && c.toLowerCase() === newName.toLowerCase())) {
+    alert('A category with that name already exists.');
+    return;
+  }
+  showCategoryWarning(() => {
+    CATEGORIES[index] = newName;
+    saveCategories();
+    renderCategories();
+  });
+}
+
+function promptAddCategory() {
+  const input = document.getElementById('cat-new-input');
+  const newCat = (input ? input.value : '').trim();
+  if (!newCat) return;
+  if (CATEGORIES.map(c => c.toLowerCase()).includes(newCat.toLowerCase())) {
+    alert('That category already exists.');
+    return;
+  }
+  showCategoryWarning(() => {
+    const insertAt = CATEGORIES.indexOf('Unclassified');
+    CATEGORIES.splice(insertAt >= 0 ? insertAt : CATEGORIES.length, 0, newCat);
+    saveCategories();
+    renderCategories();
+    if (input) input.value = '';
+  });
+}
 
 function normalizeVendor(desc) {
   let s = (desc || '').trim();
