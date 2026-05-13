@@ -552,11 +552,12 @@ async function loadAnalytics() {
     if (!res.ok) throw new Error(data.detail || 'Analytics API error');
     analyticsData = data.data || [];
 
-    // Populate category dropdown (keep first two fixed options)
+    // Populate category dropdown with all known categories plus any from data
     const sel = document.getElementById('category-filter');
-    const cats = [...new Set(analyticsData.map(r => r.category))].sort();
+    const dataCats = analyticsData.map(r => r.category);
+    const allCats = [...new Set([...dataCats, ...CATEGORIES.filter(c => c !== 'Unclassified')])].sort();
     while (sel.options.length > 2) sel.remove(2);
-    cats.forEach(c => {
+    allCats.forEach(c => {
       const opt = document.createElement('option');
       opt.value = c; opt.textContent = c;
       sel.appendChild(opt);
