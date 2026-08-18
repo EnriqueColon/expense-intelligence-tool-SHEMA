@@ -1,0 +1,48 @@
+---
+description: Maintain SESSION.md, ROLLBACK.md, and CONFLUENCE.md at the end of every session
+alwaysApply: true
+---
+
+# Session Documentation Requirement
+
+This project maintains three living documents at the repository root. Update them **before
+ending any session in which you changed code, configuration, or dependencies.** Do not wait
+to be asked — treat it as part of finishing the work.
+
+Skip the update only for read-only sessions where nothing changed.
+
+## SESSION.md — always update
+
+Prepend a new entry at the top, below the header, using the Entry Template at the bottom of
+the file. Newest session first. Fill in every section; write "None" rather than deleting a
+heading. The "What Was Done" section should carry enough detail — including approaches
+tried and rejected — that someone returning in a month can reconstruct the reasoning
+without reading the diff. Always state the status and working-tree state at the end.
+
+If a previous entry says "In progress" or "Blocked" and this session resolved it, say so
+explicitly in the new entry.
+
+## ROLLBACK.md — update when you commit
+
+Add a row for each new commit to the table for its date, creating the date section if
+needed. Record the SHA, a description, the files touched, and the revert command. Update
+the **Current HEAD** line and **Last updated** date at the top, and keep the
+"Uncommitted Work" section at the bottom accurate.
+
+Flag anything that does not revert cleanly:
+
+- Schema or data changes in `init_db()` — reverting the code leaves the column and any
+  rewritten rows in place.
+- Changes to `_fit_and_save_pipeline()` — the model in Blob Storage must be retrained after
+  a rollback.
+- Commits that must be reverted as a group, or that are unsafe to revert at all.
+
+## CONFLUENCE.md — update when behaviour or stack changes
+
+Edit the affected section in place; this is a reference document, not a log. Update it when
+you add or change a route, tab, category, environment variable, or database column; change
+the model pipeline or PDF parsing behaviour; add or upgrade a dependency; or introduce a
+constraint or gotcha a future developer would need to know. Bump the **Last updated** date.
+
+Keep the API route table, database schema, environment variable table, and Known
+Constraints list accurate — those are the sections people rely on most.

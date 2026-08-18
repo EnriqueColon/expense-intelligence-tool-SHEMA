@@ -1,6 +1,8 @@
 .env
+.venv/
 __pycache__/
 *.pyc
+.DS_Store
 
 data/
 models/
@@ -8,3 +10,4 @@ vector_store/
 raw_uploads/
 parsed_pending/
 parsed_approved/
+.vercel
