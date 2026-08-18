@@ -112,12 +112,6 @@ def init_db():
             SET statement_period = TO_CHAR(created_at, 'YYYY-MM')
             WHERE statement_period IS NULL
         """)
-        # Normalise inconsistent category labels in existing transaction rows
-        for variant, canonical in _CATEGORY_MAP.items():
-            cur.execute(
-                "UPDATE transactions SET category = %s WHERE LOWER(category) = %s AND category != %s",
-                (canonical, variant, canonical)
-            )
         cur.execute("""
             CREATE TABLE IF NOT EXISTS transactions (
                 id           SERIAL PRIMARY KEY,
@@ -134,6 +128,15 @@ def init_db():
                 updated_at   TIMESTAMPTZ   DEFAULT NOW()
             )
         """)
+        # Normalise inconsistent category labels in existing transaction rows.
+        # Must run after the CREATE above: on an empty database this UPDATE would
+        # otherwise hit a table that does not exist yet, and Postgres refuses every
+        # later statement in an aborted transaction — leaving neither table created.
+        for variant, canonical in _CATEGORY_MAP.items():
+            cur.execute(
+                "UPDATE transactions SET category = %s WHERE LOWER(category) = %s AND category != %s",
+                (canonical, variant, canonical)
+            )
         conn.commit()
         cur.close()
         conn.close()
