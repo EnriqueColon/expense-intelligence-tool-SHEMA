@@ -304,7 +304,8 @@ main {
 }
 
 .btn-primary { background: #1e3a8a; color: white; }
-.btn-primary:hover { background: #1e40af; }
+.btn-primary:hover:not(:disabled) { background: #1e40af; }
+.btn-primary:disabled { opacity: 0.65; cursor: not-allowed; }
 
 .btn-save { background: #7c3aed; color: white; }
 .btn-save:hover:not(:disabled) { background: #6d28d9; }

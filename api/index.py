@@ -1,6 +1,7 @@
 import sys
 import os
 import io
+import re
 import requests as http_requests
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -16,7 +17,7 @@ import psycopg2.extras
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from jose import JWTError, jwt
@@ -27,6 +28,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 from app.pdf_parser import parse_pdf_text, extract_transactions_from_text, extract_statement_period
+from app.report import build_report, month_add, month_label, month_span
 
 # --- Config ---
 SECRET_KEY    = os.environ.get("SECRET_KEY", "shema-intelligence-secret-2025")
@@ -493,8 +495,7 @@ def update_statement_period(
     username: str = Depends(verify_token)
 ):
     """Allow users to correct the statement period for an existing batch."""
-    import re as _re
-    if not _re.match(r'^\d{4}-\d{2}$', body.statement_period):
+    if not re.match(r'^\d{4}-\d{2}$', body.statement_period):
         raise HTTPException(status_code=400, detail="statement_period must be YYYY-MM format")
     conn = get_db()
     try:
@@ -547,6 +548,48 @@ def get_analytics(username: str = Depends(verify_token)):
     finally:
         conn.close()
 
+# Statement period drives every time-based view: a statement uploaded in August
+# but covering June spend belongs to June.  Falls back to upload month when the
+# parser could not read a billing period.
+PERIOD_EXPR = "COALESCE(tb.statement_period, TO_CHAR(tb.created_at, 'YYYY-MM'))"
+
+def build_dashboard_filters(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    cardholder: Optional[str] = None,
+) -> dict:
+    """Build the WHERE fragments shared by /api/dashboard and /api/report.
+
+    Both endpoints must resolve the same rows for a given filter set, otherwise
+    the downloaded report would not reconcile to the figures on screen.  Keep
+    this the only place the filter SQL is written.
+
+    ``date_where`` alone is exposed because the cardholder dropdown is populated
+    from the date range only — filtering it by the selected cardholder would
+    collapse the dropdown to a single entry.
+    """
+    date_clauses, date_params = [], []
+    if start:
+        date_clauses.append(f"{PERIOD_EXPR} >= %s")
+        date_params.append(start)
+    if end:
+        date_clauses.append(f"{PERIOD_EXPR} <= %s")
+        date_params.append(end)
+    date_where = ("AND " + " AND ".join(date_clauses)) if date_clauses else ""
+
+    ch_clause, ch_params = "", []
+    if cardholder:
+        ch_clause = "AND t.cardholder = %s"
+        ch_params = [cardholder]
+
+    full_where = date_where + (" " + ch_clause if ch_clause else "")
+    return {
+        "date_where":  date_where,
+        "date_params": date_params,
+        "full_where":  full_where,
+        "full_params": date_params + ch_params,
+    }
+
 @app.get("/api/dashboard")
 def get_dashboard(
     username: str = Depends(verify_token),
@@ -558,25 +601,11 @@ def get_dashboard(
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        # Date filter uses statement_period when available, falls back to created_at
-        date_clauses, date_params = [], []
-        if start:
-            date_clauses.append("COALESCE(tb.statement_period, TO_CHAR(tb.created_at, 'YYYY-MM')) >= %s")
-            date_params.append(start)
-        if end:
-            date_clauses.append("COALESCE(tb.statement_period, TO_CHAR(tb.created_at, 'YYYY-MM')) <= %s")
-            date_params.append(end)
-        date_where = ("AND " + " AND ".join(date_clauses)) if date_clauses else ""
-
-        # Cardholder filter (added on top of date filter for data queries)
-        ch_clause = ""
-        ch_params: list = []
-        if cardholder:
-            ch_clause = "AND t.cardholder = %s"
-            ch_params = [cardholder]
-
-        full_where = date_where + (" " + ch_clause if ch_clause else "")
-        full_params = date_params + ch_params
+        flt         = build_dashboard_filters(start, end, cardholder)
+        date_where  = flt["date_where"]
+        date_params = flt["date_params"]
+        full_where  = flt["full_where"]
+        full_params = flt["full_params"]
 
         cur.execute(f"""
             SELECT
@@ -643,6 +672,104 @@ def get_dashboard(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+_MONTH_RE = re.compile(r'^\d{4}-\d{2}$')
+
+def _validate_month(value: Optional[str], field: str) -> Optional[str]:
+    if value and not _MONTH_RE.match(value):
+        raise HTTPException(status_code=400, detail=f"{field} must be in YYYY-MM format")
+    return value or None
+
+@app.get("/api/report")
+def download_report(
+    username: str = Depends(verify_token),
+    start:        Optional[str] = None,
+    end:          Optional[str] = None,
+    cardholder:   Optional[str] = None,
+    period_label: Optional[str] = None,
+):
+    """Generate the formula-driven Excel workbook for the current dashboard view.
+
+    Uses the same filter builder as /api/dashboard so the workbook reconciles
+    exactly to the figures on screen.
+    """
+    _validate_month(start, "start")
+    _validate_month(end, "end")
+
+    flt = build_dashboard_filters(start, end, cardholder)
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(f"""
+            SELECT t.id,
+                   {PERIOD_EXPR}   AS statement_period,
+                   t.sale_date, t.post_date, t.description, t.category,
+                   t.cardholder, t.amount::float AS amount, t.notes,
+                   t.batch_id, tb.filename, t.processed_by
+            FROM transactions t
+            JOIN transaction_batches tb ON t.batch_id = tb.id
+            WHERE 1=1 {flt['full_where']}
+            ORDER BY {PERIOD_EXPR}, t.sale_date, t.id
+        """, flt["full_params"])
+        records = [dict(r) for r in cur.fetchall()]
+
+        # Prior period = the equally long window immediately before the start
+        # month.  Those rows are outside this report, so the figure is static.
+        prior_total = None
+        if start and records:
+            effective_end = end or max(r["statement_period"] for r in records)
+            span = month_span(start, effective_end)
+            prior_end = month_add(start, -1)
+            prior_start = month_add(prior_end, -(span - 1))
+            prior_flt = build_dashboard_filters(prior_start, prior_end, cardholder)
+            cur.execute(f"""
+                SELECT COALESCE(SUM(t.amount), 0)::float AS total
+                FROM transactions t
+                JOIN transaction_batches tb ON t.batch_id = tb.id
+                WHERE t.amount > 0 {prior_flt['full_where']}
+            """, prior_flt["full_params"])
+            prior_total = cur.fetchone()["total"]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Report query failed: {e}")
+    finally:
+        conn.close()
+
+    if not records:
+        raise HTTPException(status_code=404, detail="No transactions match the current filters.")
+
+    if not period_label:
+        periods = sorted(r["statement_period"] for r in records if r["statement_period"])
+        period_label = (
+            f"{month_label(periods[0])} – {month_label(periods[-1])}"
+            if periods and periods[0] != periods[-1]
+            else (month_label(periods[0]) if periods else "All periods")
+        )
+
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    try:
+        xlsx = build_report(
+            records,
+            {
+                "start": start,
+                "end": end,
+                "cardholder": cardholder,
+                "period_label": period_label,
+                "generated_by": username,
+                "generated_at": generated_at,
+            },
+            prior_total,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Report generation failed: {e}")
+
+    filename = f"SHEMA_Expense_Report_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+    return Response(
+        content=xlsx,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 @app.get("/api/health")
 def health():

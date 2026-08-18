@@ -396,6 +396,67 @@ function resetDashboardFilter() {
   loadDashboard();
 }
 
+// --- Excel report download ---
+const REPORT_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function buildPeriodLabel(from, to) {
+  const fmt = p => { const [y, m] = p.split('-'); return REPORT_MONTHS[+m - 1] + ' ' + y; };
+  if (from && to) return from === to ? fmt(from) : fmt(from) + ' \u2013 ' + fmt(to);
+  if (from)       return fmt(from) + ' \u2013 present';
+  if (to)         return 'Through ' + fmt(to);
+  return 'All periods';
+}
+
+async function downloadReport() {
+  const btn   = document.getElementById('btn-download-report');
+  const errEl = document.getElementById('report-error');
+
+  // Mirror the dashboard's current filters so the report is a snapshot of what
+  // is on screen.
+  const fromVal = document.getElementById('dash-date-from').value;
+  const toVal   = document.getElementById('dash-date-to').value;
+  const chVal   = document.getElementById('dash-cardholder-filter').value;
+
+  const params = new URLSearchParams();
+  if (fromVal) params.append('start',      fromVal);
+  if (toVal)   params.append('end',        toVal);
+  if (chVal)   params.append('cardholder', chVal);
+  params.append('period_label', buildPeriodLabel(fromVal, toVal));
+
+  btn.disabled    = true;
+  btn.textContent = 'Preparing\u2026';
+  errEl.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/report?' + params.toString(), {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (res.status === 401) { logout(); return; }
+    if (!res.ok) {
+      // Failures come back as JSON even though a success is binary.
+      let msg = 'Could not generate the report.';
+      try { const d = await res.json(); if (d.detail) msg = d.detail; } catch (_) {}
+      throw new Error(msg);
+    }
+
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'SHEMA_Expense_Report_' + new Date().toISOString().slice(0, 10) + '.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = 'Download Report';
+  }
+}
+
 function populateDashCardholderDropdown(cardholders) {
   const sel     = document.getElementById('dash-cardholder-filter');
   const current = sel.value;

@@ -4,6 +4,7 @@ PyMuPDF
 pandas
 scikit-learn==1.6.1
 joblib
+openpyxl
 aiofiles
 python-jose[cryptography]
 requests

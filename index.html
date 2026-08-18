@@ -189,8 +189,12 @@
                 <label class="filter-label" for="dash-date-to">To:</label>
                 <input type="month" id="dash-date-to" class="month-input" onchange="loadDashboard()" />
                 <button class="btn btn-ghost btn-sm" onclick="resetDashboardFilter()">Reset</button>
+                <button class="btn btn-primary btn-sm" id="btn-download-report" onclick="downloadReport()">
+                  Download Report
+                </button>
               </div>
             </div>
+            <div id="report-error" class="hidden card-body" style="color:#dc2626;padding-top:0"></div>
           </div>
 
           <div id="dash-empty" class="hidden">
