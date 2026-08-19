@@ -5,8 +5,12 @@
 > `ROLLBACK.md` for the commit-level change ledger.
 
 **Last updated:** 2026-08-18
-**Repository:** `expense-classifier-gpt`
-**Production host:** Vercel (project `expense-classifier-gpt`)
+**Repository:** `expense-classifier-gpt` locally; pushed to two GitHub remotes (see Git Remotes)
+**Production host:** Vercel, project **`expense-intelligence-tool-shema`**, on the Safe Harbor
+Vercel account. Live at `https://expense-intelligence-tool-shema.vercel.app`.
+**Not production:** the Vercel project `expense-classifier-gpt` is a stale copy on a personal
+account — no environment variables, no database, no active Git integration, last deployed
+2026-05. Do not mistake it for the live system.
 
 ---
 
@@ -195,7 +199,6 @@ static/login.js           Login form handling and token storage
 static/style.css          Styling for the sidebar shell and all views
 scripts/verify_report.py  Recalculates a generated workbook and asserts it ties out
 requirements.txt          Python dependencies
-vercel.json               Rewrites every path to /api/index
 billflow/                 Next.js 16 scaffold — exploratory rewrite, not deployed
 ```
 
@@ -207,7 +210,7 @@ prelude intact when editing the file.
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `POSTGRES_URL` | Yes for persistence | Postgres connection string. Without it, all DB routes return 503 |
+| `POSTGRES_URL` | Yes for persistence | Postgres connection string. Without it, all DB routes return 503. **The name is `POSTGRES_URL`** — the 503 message says "set the `DATABASE_URL` environment variable", but that is the internal Python variable name and setting it will have no effect |
 | `BLOB_READ_WRITE_TOKEN` | Yes for model persistence | Vercel Blob token. Without it, retrained models are lost on redeploy |
 | `SECRET_KEY` | Yes in production | JWT signing key |
 | `APP_USERNAME` | Yes in production | Login username |
@@ -268,8 +271,96 @@ Open `http://localhost:8000/login`. Without `POSTGRES_URL` the upload and classi
 flow still works end to end; only the save, history, dashboard, and analytics routes fail
 with a 503.
 
-Deployment is `git push` to the connected branch, or `vercel --prod` from the repository
-root. `/api/health` is the first thing to check after a deploy.
+Deployment is `git push` to `main` on the Safe Harbor remote, which the
+`expense-intelligence-tool-shema` Vercel project builds automatically. `/api/health` is the
+first thing to check after a deploy; it should return 200 with `db_configured: true`.
+
+### Routing — Why There Is No `vercel.json`
+
+The project deliberately has **no `vercel.json`**. Vercel detects the FastAPI application in
+`api/index.py` as a backend framework and routes all traffic to the ASGI app natively, with the
+original request path preserved.
+
+There used to be a catch-all rewrite, `/(.*)` → `/api/index`. **Do not reintroduce it.** Vercel
+changed the semantics of internal rewrites so that the application now receives the *rewritten
+destination* path rather than the original one. With that rewrite in place every request reaches
+FastAPI as the literal path `/api/index`, matches no route, and the entire site — pages, API,
+and static assets alike — returns `{"detail":"Not Found"}`. The app is healthy, the build
+succeeds, and there is no traceback, which makes it a genuinely confusing failure. It took
+production down on 2026-08-18.
+
+The trap is that the change is invisible until a rebuild. A deployment built under an older
+Vercel CLI keeps working indefinitely; the breakage only appears when something triggers a fresh
+build, at which point the *trigger* looks like the cause. Watch for this warning in build logs:
+
+```
+WARNING! Internal rewrites in backend framework projects now route requests using the
+rewritten destination path.
+```
+
+### Verifying A Deployment
+
+Page loads are not sufficient — the failure mode above serves a working-looking 404. Probe the
+routes directly, because the status codes distinguish "route missing" from "route present":
+
+```bash
+u=https://expense-intelligence-tool-shema.vercel.app
+curl -s -o /dev/null -w '%{http_code}\n' $u/            # expect 200
+curl -s $u/api/health                                   # expect 200, db_configured: true
+curl -s -o /dev/null -w '%{http_code}\n' $u/static/style.css   # expect 200 — proves the mount
+curl -s -o /dev/null -w '%{http_code}\n' $u/api/dashboard      # expect 401, not 404
+curl -s -o /dev/null -w '%{http_code}\n' $u/api/report         # expect 401, not 404
+```
+
+**401 means the route exists and is demanding a token — that is a pass.** A 404 on
+`/api/dashboard` or `/api/report` means the deployed bundle does not contain that route, either
+because routing is broken or because an older build is being served.
+
+### Rolling Back A Bad Deployment
+
+Vercel dashboard → project → **Deployments** → three-dot menu on the last known-good deployment
+→ **Instant Rollback**. This repoints the production alias at an existing build in seconds. It
+changes neither git nor the database.
+
+Two caveats learned the hard way. A rollback **pins** production, so later pushes may build
+without being promoted — check whether production actually moved, rather than assuming. And
+because a rollback restores an *older build*, the running code will no longer match `main`;
+`/api/report` returning 404 is a quick way to detect that drift.
+
+### There Is No Staging Environment
+
+The only project that auto-deploys is production. Until that changes, test anything risky with a
+**preview deployment**: push a branch other than `main` to the Safe Harbor remote and Vercel
+builds it at its own URL, leaving production untouched. This is how the routing fix above was
+validated before it was merged.
+
+### Git Remotes
+
+This repository is pushed to **two GitHub accounts**, maintained as mirrors by hand:
+
+| Remote | Repository | Account |
+|---|---|---|
+| `origin` | `RSronin09/expense-classifier-gpt` | personal (`enriquec012@outlook.com`) |
+| `enriquecolon` | `EnriqueColon/expense-intelligence-tool-SHEMA` | Safe Harbor (`mktinfo@safeharborequity.com`) |
+
+Nothing enforces that both stay in step. A push to one only will leave the other silently
+behind — this happened on 2026-08-18, when three commits reached `origin` and the Safe Harbor
+repository stayed three commits back until someone noticed. Push to both, every time:
+
+```bash
+git push origin main && git push enriquecolon main
+```
+
+Commits are authored from the **global** git config (`RSronin09 <enriquec012@outlook.com>`);
+there is no repository-local identity override, so commits carry the personal identity
+regardless of which remote they land on.
+
+> **Credential warning.** The `enriquecolon` remote URL has historically carried a GitHub
+> personal access token embedded in it (`https://user:ghp_...@github.com/...`). That stores
+> the secret in plaintext in `.git/config` and leaks it through ordinary commands such as
+> `git remote -v`. Do not reintroduce this pattern — use SSH or a git credential helper. If
+> you find a token in a remote URL, revoke it at github.com/settings/tokens and re-point the
+> remote.
 
 ### Maintenance Playbook
 
@@ -342,3 +433,14 @@ the top of the file, and every view re-renders through its own `render*` functio
   the download slow and could approach the serverless function timeout.
 - `billflow/` is an untracked Next.js scaffold with no application code yet; it is not part
   of the deployed product.
+- The repository has two GitHub remotes kept in sync manually, so they can and do drift. See
+  Git Remotes above before pushing or reverting.
+- Adding a `vercel.json` catch-all rewrite to `/api/index` breaks every route on the next
+  rebuild. See Routing above.
+- A rebuild can break production even when no application code changed, because Vercel platform
+  behaviour changes take effect only when a project is rebuilt. Long gaps between deploys make
+  this more likely, not less.
+- There is no staging environment; production is the only auto-deploying project. Use branch
+  preview deployments to test.
+- Production can silently run code older than `main` following an Instant Rollback, since a
+  rollback pins the production alias.

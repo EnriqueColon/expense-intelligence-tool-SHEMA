@@ -4,8 +4,18 @@ Every committed change to the tool, newest first, with the files it touched and 
 command to undo it. Add an entry here for each commit at the end of every session.
 
 **Last updated:** 2026-08-18
-**Current HEAD:** the documentation commit described in the 2026-08-18 section below. A
-commit cannot contain its own hash, so that one entry carries its SHA from the next update.
+**Current HEAD:** `6526967`
+**Published to:** both remotes — `origin` (`RSronin09/expense-classifier-gpt`) and
+`enriquecolon` (`EnriqueColon/expense-intelligence-tool-SHEMA`, the Safe Harbor account) are
+in sync at `6526967`.
+**Deployed to production:** a build *older* than `d00e0c5`. Production was rolled back during
+the 2026-08-18 outage and the newer build has not been promoted, so **the deployed code does
+not match `main`**. See the outage entry below.
+
+> **Two remotes, kept in sync by hand.** This repository pushes to two GitHub accounts and
+> there is no automation enforcing it. On 2026-08-18 a push went to `origin` only and the
+> Safe Harbor repository silently fell three commits behind. When rolling anything back,
+> push the revert to **both** remotes or they will diverge.
 
 ---
 
@@ -53,13 +63,33 @@ git checkout <sha> -- path/to/file
 
 ## Change Log
 
-### 2026-08-18 — Download Report, startup fix, and documentation
+### 2026-08-18 — Download Report, startup fix, documentation, and the routing outage
 
 | SHA | Change | Files | Revert |
 |---|---|---|---|
-| _(this entry's own commit)_ | Add SESSION.md, ROLLBACK.md, CONFLUENCE.md, the session-docs rule, and ignore `.venv/` / `.DS_Store` | `SESSION.md`, `ROLLBACK.md`, `CONFLUENCE.md`, `.cursor/rules/session-docs.mdc`, `.gitignore` | Safe to revert — documentation only, no runtime effect |
+| `6526967` | Remove the `vercel.json` catch-all rewrite that broke all routing | `vercel.json` | **do not revert** |
+| `d00e0c5` | Add SESSION.md, ROLLBACK.md, CONFLUENCE.md, the session-docs rule, and ignore `.venv/` / `.DS_Store` | `SESSION.md`, `ROLLBACK.md`, `CONFLUENCE.md`, `.cursor/rules/session-docs.mdc`, `.gitignore` | Safe to revert — documentation only, no runtime effect |
 | `8ac5dd1` | Add Download Report: formula-driven Excel export of the dashboard | `app/report.py`, `app/vendors.py`, `scripts/verify_report.py`, `api/index.py`, `index.html`, `static/app.js`, `static/style.css`, `requirements.txt` | `git revert 8ac5dd1` |
 | `0d1e6e3` | Fix `init_db` so a fresh database initialises | `api/index.py` | do not revert |
+
+`6526967` is marked **do not revert**. Restoring `vercel.json` reinstates the catch-all rewrite
+`/(.*)` → `/api/index`, which under Vercel's current semantics delivers every request to FastAPI
+as the literal path `/api/index`. Nothing matches, and the entire site returns
+`{"detail":"Not Found"}` — including static assets — while appearing healthy in the build log.
+This took production down on 2026-08-18. Reverting it will take production down again on the
+next rebuild.
+
+> **Rebuilds are the hazard, not commits.** The outage was triggered by a *rebuild*, not by any
+> code change. The failed deployment was this project's first under Vercel CLI 59.0.0 after 85
+> days (`Previous build caches not available`), and the new CLI changed how internal rewrites
+> route requests. Any push — even to a documentation file — would have caused it. Bear this in
+> mind before assuming a future breakage was caused by whatever commit happened to trigger it.
+
+**Recovery procedure, proven on 2026-08-18.** Vercel dashboard → the project → Deployments →
+three-dot menu on the last known-good deployment → **Instant Rollback**. This repoints the
+production alias at an existing build. It touches neither git nor the database, and it restored
+service in seconds. Note that it also *pins* production: subsequent pushes build but may not be
+promoted until the rollback is cancelled.
 
 `0d1e6e3` is marked do-not-revert because reverting it restores a state in which a
 deployment against an empty database silently creates no tables at all. It changes nothing
@@ -189,10 +219,25 @@ and are not revertable in any meaningful sense.
 
 ## Uncommitted Work
 
-Everything from the 2026-08-18 sessions is committed except the documentation itself, which
-is going in as the commit described at the top of the change log. Nothing has been pushed —
-`origin` is untouched, so the deployed application is still running `c33953d` until someone
-pushes.
+Everything from the 2026-08-18 sessions is committed and pushed to both remotes at `6526967`,
+**except the documentation edits recording the outage**, which are still in the working tree.
+
+The deployed application is **not** running `6526967`. Production was rolled back during the
+outage and the newer build was never promoted, so it serves a build predating `d00e0c5` — one
+without the Download Report feature. Promote the `6526967` build in the Vercel dashboard to
+close that gap; `/api/report` returning 401 rather than 404 confirms it.
+
+There is also a live branch, `fix/vercel-routing`, on the Safe Harbor remote at `6526967`. It
+exists only to have produced a preview deployment and can be deleted once production is on
+`6526967`.
+
+_Corrected on 2026-08-18: this section previously stated that nothing had been pushed and that
+`origin` was untouched. Both claims were false — `origin/main` had been fast-forwarded to
+`d00e0c5` at 13:18. The Safe Harbor remote was the one left behind, and was brought up to date
+the same day._
+
+The only uncommitted item is the documentation edit recording all of the above, which will be
+committed next and needs a row adding to the change log when it is.
 
 Deliberately left untracked:
 

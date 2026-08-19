@@ -6,9 +6,226 @@ of the project when the session ended.
 
 ---
 
+## Session 2026-08-18 (3) — Correct remote, production outage, and the Vercel rewrite fix
+
+**Status at end of session:** Production is healthy but still serving the pre-outage build.
+The routing fix is committed and pushed on `main` (`6526967`) and validated on a preview
+deployment, but has **not been promoted to production**. Two items need the user: promoting
+that build, and revoking an exposed credential.
+
+This session caused a production outage and recovered from it. The sequence is recorded in
+full below because the root cause was a Vercel platform change that will affect any future
+rebuild of this project.
+
+### Objective
+
+Get the three commits from session (2) onto the correct GitHub account. The user reported
+that work was going to the wrong one. That turned into an incident response.
+
+### What Was Done
+
+The report was accurate and the diagnosis was the reverse of what the previous entry in this
+file claimed. This repository has **two remotes**, and they have been maintained as mirrors:
+
+| Remote | Repository | Account |
+|---|---|---|
+| `origin` | `RSronin09/expense-classifier-gpt` | personal — `enriquec012@outlook.com` |
+| `enriquecolon` | `EnriqueColon/expense-intelligence-tool-SHEMA` | **Safe Harbor — `mktinfo@safeharborequity.com`** |
+
+`git reflog show origin/main` showed the two repositories had been pushed within two seconds
+of each other on 2026-05-13, and every earlier commit appears in both reflogs — so the mirror
+arrangement is long-standing and deliberate. At 13:18 today, however, the three new commits
+were pushed to `origin` **only**, leaving the Safe Harbor repository behind at `c33953d`.
+That single-sided push is what the user noticed.
+
+The previous entry in this file, and `ROLLBACK.md`, both asserted that nothing had been
+pushed. That was wrong — `refs/remotes/origin/main` carried an `update by push` entry
+pointing at `d00e0c5`. Both documents have been corrected below and in place.
+
+Before pushing, the merge was confirmed safe rather than assumed: `git merge-base
+--is-ancestor` established that `c33953d` is an ancestor of `HEAD`, and `HEAD..enriquecolon/main`
+was empty, proving a clean fast-forward that discards nothing. `git push enriquecolon main`
+then moved it `c33953d..d00e0c5`. Both remotes now point at `d00e0c5`.
+
+### The Outage
+
+Minutes after that push the user reported production returning `{"detail":"Not Found"}` at
+`expense-intelligence-tool-shema.vercel.app`, and asked whether the data had been deleted.
+
+**It had not, and could not have been.** Establishing that first, with evidence, was the
+priority. The push was a fast-forward, which only adds commits and cannot remove anything; no
+file was deleted in the three commits (`git diff --diff-filter=D` was empty); no destructive
+SQL was added (the only `DELETE` in the codebase is the pre-existing per-batch delete at
+`api/index.py:520`); the report module performs no writes at all; and transactions live in
+Postgres, which no git push or deployment can modify. The only database touched in session (2)
+was a local throwaway.
+
+Diagnosis proceeded by probing both deployments from outside. This produced one badly wrong
+intermediate conclusion that is worth recording, because the reasoning looked sound:
+
+> `/api/transactions/history` returned 404 on the broken site but 401 on the healthy one.
+> Since that route predates this work by months, the broken deployment was assumed **not** to
+> be running this codebase at all, and therefore the outage was assumed pre-existing.
+
+That was wrong. After the rollback restored the site, the same route returned 401, proving it
+*was* this codebase. The flaw: a uniform 404 across every path is equally consistent with "the
+app has no routes" and with "no request ever matches a route", and only the second was true.
+The user pushed back twice before this was resolved; they were right both times.
+
+Recovery was a **Vercel Instant Rollback** performed by the user in the dashboard — no git
+change, no data change, just repointing the production alias at the previous build. The site
+came back immediately, confirmed by probe: `/` 200, `/api/health` 200 with `db_configured:
+true`, `/static/style.css` 200, `/api/transactions/history` 401.
+
+### Root Cause
+
+The build log for the failed deployment contained the answer on line four:
+
+```
+WARNING! Internal rewrites in backend framework projects now route requests using the
+rewritten destination path. This behavior was previously unsupported and may change which
+application route handles a request.
+```
+
+`vercel.json` contained a single catch-all rewrite, `/(.*)` → `/api/index`. Under the previous
+semantics the function received the **original** path, so `/login` arrived as `/login`. Vercel
+changed this so the app receives the **destination** path: every request began arriving at
+FastAPI as `/api/index`, which matches no route. Hence a uniform 404 across every path
+including static assets, with a healthy app, a successful build, and no traceback.
+
+**The commits did not cause this; a rebuild did.** The log also recorded `Previous build caches
+not available` and `Vercel CLI 59.0.0` — this was the project's first build under the new CLI
+after 85 days. Any push would have triggered it. A README typo would have taken the site down
+identically.
+
+Two red herrings were ruled out along the way. `Bundle size (351.09 MB) exceeds the standard
+size; optimizing dependencies` is a warning Vercel resolves itself, not a failure — the earlier
+theory that adding `openpyxl` breached the 250 MB function limit was wrong. And the theory that
+a module-level `from app.report import ...` failure had crashed the app before route
+registration was wrong too; the app imports cleanly and a crash would have produced 500s, not
+404s.
+
+### The Fix
+
+`vercel.json` was deleted. The rewrite is now both redundant and harmful: Vercel's own warning
+describes this as a "backend framework project", meaning FastAPI is detected and all traffic is
+routed to the ASGI app natively with paths preserved.
+
+This was **not** tested on production. A branch, `fix/vercel-routing`, was pushed to the Safe
+Harbor repository to trigger a preview deployment at its own URL, leaving production on the
+rolled-back build throughout — verified mid-flight by probing production during the preview
+build. The user confirmed the preview served correctly. Only then was the branch fast-forwarded
+into `main` and pushed to **both** remotes.
+
+### Unfinished — Production Still Runs The Old Build
+
+After the merge, production continued to serve the pre-outage build. Polled for three minutes:
+`/api/report` stayed 404 and the served HTML contains no `btn-download-report`, both proving the
+old bundle. The new deployment has not been promoted, most likely because the Instant Rollback
+pinned the production alias.
+
+This is benign in the short term. The old build was compiled under the old CLI, so its
+`vercel.json` rewrite still works and the site is stable. But the deployed code has no Download
+Report feature, and production is frozen at a build whose source no longer matches `main`.
+
+Resolution is one action in the Vercel dashboard: cancel the rollback if a banner is present,
+then promote the newest `Ready` deployment of `6526967` to Production. The unambiguous success
+signal is `/api/report` returning **401** instead of 404, and `Download Report` appearing in the
+page source.
+
+### Security Finding — Needs Action
+
+`git remote -v` revealed a **classic GitHub personal access token embedded in plaintext** in
+the `enriquecolon` remote URL, in the form `https://EnriqueColon:ghp_...@github.com/...`.
+It is stored unencrypted in `.git/config` and is printed by routine commands, which is how it
+surfaced. It has been exposed in a chat transcript and must be considered compromised.
+
+Required: revoke it at github.com/settings/tokens. Because that token is what currently
+authenticates pushes to the Safe Harbor repository, revoking it will break that remote, so it
+needs replacing at the same time — either an SSH remote or a git credential helper, neither of
+which writes the secret into a tracked-adjacent file. Push output in this session was piped
+through `sed` to redact `ghp_` strings.
+
+Separately, `gh auth status` reports the tokens in the keyring for **both** accounts are
+invalid. The `gh` CLI cannot authenticate as anyone until `gh auth login` is re-run.
+
+### Decisions Taken
+
+Put to the user before acting; all four were their call:
+
+- **Authorship left as-is.** The three commits remain authored `RSronin09
+  <enriquec012@outlook.com>` from the global git config. Re-authoring was offered — they are
+  unpushed-to-Safe-Harbor and rewriting was clean — and declined.
+- **Both existing remotes kept.** No remote was added or removed; the correct one already
+  existed.
+- No git config was modified in this session.
+
+### Infrastructure Discovered
+
+Facts established while diagnosing, none of which were previously written down:
+
+- **Production is the `expense-intelligence-tool-shema` Vercel project**, on a Vercel account
+  reachable only from the Safe Harbor login. `vercel teams ls` from the local CLI (signed in as
+  `enriquec012-2079`) shows exactly one team, "Enrique 's projects", which does **not** contain
+  that project. `CONFLUENCE.md` previously named `expense-classifier-gpt` as production; that
+  was wrong and has been corrected.
+- **`expense-classifier-gpt` is a stale copy.** Last updated 85 days ago, it has **no
+  environment variables at all** (hence `db_configured: false`, so no database and no data), and
+  it did not deploy either of today's pushes — its Git integration appears disconnected.
+- **There is therefore no staging environment.** The only project that auto-deploys is
+  production. Preview deployments from a branch are currently the only safe way to test.
+- The env var the code reads is **`POSTGRES_URL`**. The 503 message in `get_db()` tells the
+  reader to set `DATABASE_URL`, which is the internal Python variable name and will not work if
+  taken literally. Production has `POSTGRES_URL` set correctly.
+
+### Files Changed
+
+- `vercel.json` — **deleted** (commit `6526967`). The only application-affecting change.
+- `SESSION.md`, `ROLLBACK.md`, `CONFLUENCE.md` — documentation, uncommitted at time of writing.
+
+No Python, HTML, JS, or CSS was modified in this session.
+
+### Open Issues
+
+**Production runs an old build.** The Download Report feature is committed, pushed, and preview
+-validated, but not live. Needs promotion in the Vercel dashboard.
+
+**The exposed token is unrevoked.** Highest-priority item and cannot be done from here.
+
+**No staging environment.** Either reconnect `expense-classifier-gpt` to the repository and give
+it its own throwaway database, or adopt branch previews as the standard pre-production check.
+
+**The `gh` CLI is unauthenticated** for both accounts.
+
+Still open from session (2): Excel/Sheets rendering of the vendor drill-down outline is
+unverified, the two vendor-normalisation implementations must be kept in sync by hand, and
+`billflow/` is untracked and undecided.
+
+### State At End Of Session
+
+`main` at `6526967` on both remotes, plus the branch `fix/vercel-routing` at the same commit on
+the Safe Harbor remote. Production serves a build older than `d00e0c5`, is fully healthy, and
+has `db_configured: true`. All production data is intact and was never at risk. Working tree
+carries the three modified documentation files and the untracked `billflow/` scaffold.
+
+### Suggested Next Steps
+
+1. **Promote the `6526967` build to production** and confirm `/api/report` returns 401.
+2. **Revoke the exposed token** and re-point the `enriquecolon` remote at SSH or a credential
+   helper.
+3. Establish a staging target so no future change reaches production unproven.
+4. Re-run `gh auth login` so the CLI works again.
+5. Confirm the Download Report button works against production data — still the last unverified
+   step from session (2).
+6. Push to both remotes together in future, or drop one, since the mirror is maintained by hand
+   and silently drifted today.
+
+---
+
 ## Session 2026-08-18 (2) — Download Report: formula-driven Excel export
 
-**Status at end of session:** Complete and verified. Not committed.
+**Status at end of session:** Complete and verified. Committed as three commits; pushed to
+`origin` at the time, and to the Safe Harbor remote in session (3).
 
 ### Objective
 
@@ -191,7 +408,10 @@ present. Fixed in `0d1e6e3` as a standalone commit so it can be reverted indepen
 the file was reset to its `HEAD` state, the `init_db` fix reapplied and committed alone, then
 the full version restored for the feature commit. The isolation was checked by confirming the
 remaining diff contained no `init_db` hunk, and the endpoint was re-smoke-tested afterwards.
-All three commits are local; nothing has been pushed.
+
+All three commits were pushed to `origin` (`RSronin09/expense-classifier-gpt`) at 13:18.
+_Corrected in session (3): this entry originally stated that nothing had been pushed, which
+the reflog disproved. They did not reach the Safe Harbor remote until session (3)._
 
 ### Open Issues
 
@@ -206,7 +426,8 @@ work, but it will need addressing on a future PyMuPDF upgrade.
 
 ### State At End Of Session
 
-Three commits on `main`, none pushed, so the deployed application is still running `c33953d`.
+Three commits on `main`, pushed to `origin` only — the Safe Harbor remote was left behind at
+`c33953d`, which session (3) found and fixed.
 The feature is verified against a real PostgreSQL database and a real browser, the startup
 fix is verified against an empty database, and `scripts/verify_report.py` passes all
 tie-outs and edge scenarios. All temporary databases, servers, and preview artefacts were
